@@ -318,6 +318,12 @@
                     const uv = this.sampleUV(p.lat, p.lon);
                     const speed = Math.sqrt(uv.u * uv.u + uv.v * uv.v);
 
+                    // 陸地に到達した場合は再初期化
+                    if (uv.isLand) {
+                        this.particles[i] = this.randomParticle();
+                        continue;
+                    }
+
                     // 粒子を更新
                     p.lat += uv.v * dt;
                     p.lon += uv.u * dt / Math.cos(p.lat * Math.PI / 180);
@@ -351,16 +357,23 @@
             sampleUV(lat, lon) {
                 let closestDist = Infinity;
                 let closestUV = { u: 0, v: 0 };
+                let isValid = false;
 
                 for (const p of this.points) {
                     const dist = Math.pow(lat - p.lat, 2) + Math.pow(lon - p.lon, 2);
                     if (dist < closestDist) {
                         closestDist = dist;
                         closestUV = { u: p.u || 0, v: p.v || 0 };
+                        isValid = true;
                     }
                 }
 
-                return closestUV;
+                // しきい値内（0.05度 ≈ 5km以内）でない場合は陸地と判定
+                if (closestDist > 0.0025) {  // 0.05^2
+                    return { u: 0, v: 0, isLand: true };
+                }
+
+                return { u: closestUV.u, v: closestUV.v, isLand: false };
             }
 
             start() {
