@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Surface Current Visualizer</title>
+    <title>Surface Current Visualizer - 海面流可視化</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
     <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
     <style>
@@ -15,36 +15,47 @@
         }
         #container {
             display: flex;
+            flex-direction: column;
             height: 100vh;
         }
+        #main {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
         #sidebar {
-            width: 300px;
+            width: 320px;
             background: #1a2a4a;
             padding: 20px;
             overflow-y: auto;
             border-right: 1px solid #2a4a7a;
         }
-        #map {
+        #map-container {
             flex: 1;
             position: relative;
+            display: flex;
+            flex-direction: column;
+        }
+        #map {
+            flex: 1;
+        }
+        #timeline-container {
+            background: #1a2a4a;
+            padding: 12px 20px;
+            border-top: 1px solid #2a4a7a;
         }
         h1 {
             font-size: 18px;
             margin-bottom: 20px;
             color: #64b5f6;
         }
-        .section {
-            margin-bottom: 20px;
-            padding: 15px;
-            background: #0f1a32;
-            border-left: 3px solid #64b5f6;
-            border-radius: 4px;
-        }
-        .section-title {
+        h2 {
             font-size: 14px;
             font-weight: bold;
-            margin-bottom: 10px;
+            margin: 15px 0 10px 0;
             color: #90caf9;
+            border-bottom: 1px solid #2a4a7a;
+            padding-bottom: 8px;
         }
         .control-group {
             margin-bottom: 12px;
@@ -55,9 +66,7 @@
             margin-bottom: 5px;
             color: #b3e5fc;
         }
-        input[type="file"],
-        input[type="range"],
-        select {
+        input[type="file"] {
             width: 100%;
             padding: 6px;
             background: #1e3a5f;
@@ -66,35 +75,70 @@
             border-radius: 3px;
             font-size: 12px;
         }
-        button {
+        input[type="range"] {
             width: 100%;
-            padding: 8px 12px;
+            margin: 5px 0;
+        }
+        input[type="checkbox"] {
+            margin-right: 6px;
+        }
+        .mode-buttons {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+            margin-bottom: 12px;
+        }
+        button {
+            padding: 8px 10px;
+            background: #2a5080;
+            color: #e0e8f0;
+            border: 1px solid #3a6a9a;
+            border-radius: 4px;
+            font-weight: 600;
+            cursor: pointer;
+            font-size: 11px;
+            transition: all 0.3s;
+        }
+        button:hover { background: #3a6a9a; }
+        button.active {
             background: #64b5f6;
             color: #0a0e27;
-            border: none;
-            border-radius: 4px;
-            font-weight: bold;
-            cursor: pointer;
-            font-size: 12px;
-            transition: background 0.3s;
+            border-color: #64b5f6;
         }
-        button:hover { background: #90caf9; }
-        button:active { background: #42a5f5; }
+        button.primary {
+            grid-column: 1 / -1;
+            background: #4a9eff;
+        }
+        button.primary:hover { background: #64b5f6; }
         .info-box {
             background: rgba(100, 181, 246, 0.1);
-            padding: 10px;
+            padding: 8px;
             border-left: 2px solid #64b5f6;
             font-size: 11px;
             margin-bottom: 10px;
             border-radius: 2px;
+            line-height: 1.4;
         }
         #status {
             font-size: 11px;
             margin-top: 10px;
             padding: 8px;
-            background: rgba(0, 200, 100, 0.2);
+            background: rgba(0, 200, 100, 0.1);
             border-left: 2px solid #00c864;
             border-radius: 2px;
+        }
+        .slider-value {
+            display: inline-block;
+            float: right;
+            font-weight: bold;
+            color: #64b5f6;
+        }
+        #timeline-container label {
+            display: inline;
+            margin-right: 10px;
+        }
+        #timeline-slider {
+            width: 60%;
         }
         .leaflet-control {
             background: #1a2a4a;
@@ -103,70 +147,112 @@
         }
         .leaflet-control-attribution {
             background: rgba(26, 42, 74, 0.8);
+            font-size: 10px;
+        }
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0f1a32;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #2a5080;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #3a6a9a;
         }
     </style>
 </head>
 <body>
     <div id="container">
-        <div id="sidebar">
-            <h1>🌊 Surface Current</h1>
+        <div id="main">
+            <div id="sidebar">
+                <h1>🌊 海面流可視化</h1>
 
-            <div class="section">
-                <div class="section-title">データ読み込み</div>
                 <div class="info-box">
-                    processsed/ フォルダの JSON ファイルを選択して読み込みます。
+                    複数の可視化方法で海流データを表示します。
                 </div>
+
+                <!-- データ読み込み -->
+                <h2>データ読み込み</h2>
                 <div class="control-group">
                     <label>JSON ファイル選択</label>
                     <input type="file" id="jsonFile" accept=".json">
                 </div>
-                <button onclick="loadJSON()">読み込む</button>
-            </div>
+                <button class="primary" onclick="loadJSON()">読み込む</button>
 
-            <div class="section">
-                <div class="section-title">可視化設定</div>
+                <!-- 可視化モード -->
+                <h2>可視化モード</h2>
+                <div class="mode-buttons">
+                    <button class="active" onclick="setVizMode('arrow')">矢印</button>
+                    <button onclick="setVizMode('barb')">矢羽</button>
+                    <button onclick="setVizMode('streamline')">流線</button>
+                    <button onclick="setVizMode('particle')">粒子</button>
+                </div>
+
+                <!-- 表示設定 -->
+                <h2>表示設定</h2>
                 <div class="control-group">
-                    <label>矢印表示間隔</label>
-                    <input type="range" id="arrowSpacing" min="1" max="20" value="5"
-                           oninput="updateDisplay()">
-                    <span id="arrowSpacingValue">5</span>
+                    <label>矢印間隔 <span class="slider-value" id="densityValue">5</span></label>
+                    <input type="range" id="densitySlider" min="2" max="20" value="5" oninput="updateDisplay()">
                 </div>
                 <div class="control-group">
-                    <label>矢印スケール</label>
-                    <input type="range" id="arrowScale" min="0.5" max="5" step="0.5" value="1.5"
-                           oninput="updateDisplay()">
-                    <span id="arrowScaleValue">1.5×</span>
+                    <label>矢印スケール <span class="slider-value" id="scaleValue">1.0×</span></label>
+                    <input type="range" id="scaleSlider" min="0.5" max="3" step="0.5" value="1" oninput="updateDisplay()">
                 </div>
                 <div class="control-group">
                     <label>
-                        <input type="checkbox" id="showContour" checked onchange="updateDisplay()">
-                        等値線表示
+                        <input type="checkbox" id="colorBySpeed" checked onchange="updateDisplay()">
+                        速度で色分け
                     </label>
                 </div>
+                <div class="control-group">
+                    <label>最大速度 (m/s): <span class="slider-value" id="maxSpeedValue">1.0</span></label>
+                    <input type="range" id="maxSpeedSlider" min="0.5" max="5" step="0.5" value="1" oninput="updateDisplay()">
+                </div>
+
+                <!-- ステータス -->
+                <h2>ステータス</h2>
+                <div id="status">待機中...</div>
             </div>
 
-            <div class="section">
-                <div class="section-title">情報</div>
-                <div id="status">待機中...</div>
-                <div style="font-size: 10px; margin-top: 10px; color: #90caf9;">
-                    <p>👆 地図上にマウスを移動して流速情報を確認</p>
-                </div>
+            <div id="map-container">
+                <div id="map"></div>
             </div>
         </div>
 
-        <div id="map"></div>
+        <div id="timeline-container">
+            <label>時刻:</label>
+            <input type="range" id="timeline-slider" min="0" max="9" value="0" oninput="setTimelineIndex()">
+            <label id="timelineLabel">2026-04-07 00:00</label>
+            <button style="width: 60px; float: right; margin-left: 8px;" onclick="toggleTimeline()">
+                <span id="playBtnText">▶ 再生</span>
+            </button>
+        </div>
     </div>
 
     <script>
-        // Map初期化
-        const map = L.map('map').setView([35.5, 142.0], 7);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '© OpenStreetMap contributors',
-            maxZoom: 19
-        }).addTo(map);
+        'use strict';
 
-        let currentData = null;
-        let arrows = [];
+        // グローバル変数
+        let allData = null;
+        let currentEntryIdx = 0;
+        let vizMode = 'arrow';
+        let map = null;
+        let vizLayer = null;
+        let timelineTimer = null;
+        const LAT_MIN = 41.0;
+
+        // 初期化
+        function initMap() {
+            map = L.map('map').setView([44.0, 143.5], 7);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap',
+                maxZoom: 19,
+                minZoom: 5
+            }).addTo(map);
+        }
 
         function el(id) { return document.getElementById(id); }
 
@@ -175,6 +261,7 @@
             console.log(msg);
         }
 
+        // JSON 読み込み
         function loadJSON() {
             const fileInput = el('jsonFile');
             if (!fileInput.files.length) {
@@ -187,74 +274,278 @@
 
             reader.onload = (e) => {
                 try {
-                    currentData = JSON.parse(e.target.result);
-                    setStatus(`✓ ${file.name} を読み込みました（${currentData.data.length} ポイント）`);
+                    allData = JSON.parse(e.target.result);
+
+                    if (!allData.entries || allData.entries.length === 0) {
+                        throw new Error('entries が見つかりません');
+                    }
+
+                    // タイムラインスライダーを更新
+                    const slider = el('timeline-slider');
+                    slider.max = allData.entries.length - 1;
+                    slider.value = 0;
+
+                    currentEntryIdx = 0;
+                    updateTimelineLabel();
                     updateDisplay();
+
+                    setStatus(`✓ ${file.name} を読み込みました (${allData.entries.length} 時刻)`);
                 } catch (err) {
-                    setStatus(`❌ JSON パースエラー: ${err.message}`);
+                    setStatus(`❌ エラー: ${err.message}`);
                 }
             };
 
             reader.readAsText(file);
         }
 
+        // 可視化モード切り替え
+        function setVizMode(mode) {
+            vizMode = mode;
+
+            // ボタンのアクティブ状態を更新
+            document.querySelectorAll('.mode-buttons button').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            event.target.classList.add('active');
+
+            updateDisplay();
+        }
+
+        // 時刻スライダー
+        function setTimelineIndex() {
+            currentEntryIdx = parseInt(el('timeline-slider').value);
+            updateTimelineLabel();
+            updateDisplay();
+        }
+
+        function updateTimelineLabel() {
+            if (!allData || !allData.entries[currentEntryIdx]) return;
+            const time = allData.entries[currentEntryIdx].time;
+            el('timelineLabel').textContent = time.substring(0, 16).replace('T', ' ');
+        }
+
+        function toggleTimeline() {
+            if (timelineTimer) {
+                clearInterval(timelineTimer);
+                timelineTimer = null;
+                el('playBtnText').textContent = '▶ 再生';
+            } else {
+                timelineTimer = setInterval(() => {
+                    let idx = parseInt(el('timeline-slider').value);
+                    idx = (idx + 1) % allData.entries.length;
+                    el('timeline-slider').value = idx;
+                    setTimelineIndex();
+                }, 800);
+                el('playBtnText').textContent = '⏸ 停止';
+            }
+        }
+
+        // 表示更新
         function updateDisplay() {
-            if (!currentData || !currentData.data) {
+            if (!allData || !allData.entries[currentEntryIdx]) {
                 setStatus('データが読み込まれていません');
                 return;
             }
 
-            // 既存の矢印を削除
-            arrows.forEach(arrow => map.removeLayer(arrow));
-            arrows = [];
+            // 既存レイヤーを削除
+            if (vizLayer) {
+                map.removeLayer(vizLayer);
+            }
 
-            const spacing = parseInt(el('arrowSpacing').value);
-            const scale = parseFloat(el('arrowScale').value);
+            const entry = allData.entries[currentEntryIdx];
+            const points = filterByLatitude(entry.data);
 
-            el('arrowSpacingValue').textContent = spacing;
-            el('arrowScaleValue').textContent = scale.toFixed(1) + '×';
+            const density = parseInt(el('densitySlider').value);
+            const scale = parseFloat(el('scaleSlider').value);
+            const colorBySpeed = el('colorBySpeed').checked;
+            const maxSpeed = parseFloat(el('maxSpeedSlider').value);
 
-            // 矢印を描画
-            const points = currentData.data;
-            for (let i = 0; i < points.length; i += spacing) {
-                const p = points[i];
-                if (!p.lat || !p.lon) continue;
+            // 表示密度で間引く
+            const sampledPoints = [];
+            for (let i = 0; i < points.length; i += density) {
+                sampledPoints.push(points[i]);
+            }
 
+            // モードに応じて描画
+            switch (vizMode) {
+                case 'arrow':
+                    drawArrows(sampledPoints, scale, colorBySpeed, maxSpeed);
+                    break;
+                case 'barb':
+                    drawBarbs(sampledPoints, scale, colorBySpeed, maxSpeed);
+                    break;
+                case 'streamline':
+                    drawStreamlines(points, scale, colorBySpeed, maxSpeed);
+                    break;
+                case 'particle':
+                    drawParticles(sampledPoints, scale, maxSpeed);
+                    break;
+            }
+
+            el('densityValue').textContent = density;
+            el('scaleValue').textContent = scale.toFixed(1) + '×';
+            el('maxSpeedValue').textContent = maxSpeed.toFixed(1);
+            setStatus(`✓ ${sampledPoints.length} 本の矢印を描画（モード: ${vizMode}）`);
+        }
+
+        // フィルタリング（北緯41°以上）
+        function filterByLatitude(data) {
+            return data.filter(p => p.lat >= LAT_MIN);
+        }
+
+        // カラーマップ（速度 → 色）
+        function speedToColor(speed, maxSpeed) {
+            const ratio = Math.min(speed / maxSpeed, 1.0);
+            if (ratio < 0.25) return '#0088ff';      // 青
+            if (ratio < 0.5) return '#00ffff';       // シアン
+            if (ratio < 0.75) return '#00ff00';      // 緑
+            if (ratio < 0.9) return '#ffff00';       // 黄
+            return '#ff0000';                        // 赤
+        }
+
+        // ベクター矢印描画
+        function drawArrows(points, scale, colorBySpeed, maxSpeed) {
+            const group = L.featureGroup();
+
+            for (const p of points) {
                 const u = p.u || 0;
                 const v = p.v || 0;
                 const speed = Math.sqrt(u * u + v * v);
+                const color = colorBySpeed ? speedToColor(speed, maxSpeed) : '#00a8ff';
+
                 const bearing = Math.atan2(u, v) * 180 / Math.PI;
+                const len = Math.max(0.02, Math.min(0.2, speed * scale * 0.05));
 
-                // 速度に応じて色を変更
-                let color = '#00ff00';
-                if (speed > 0.2) color = '#ffff00';
-                if (speed > 0.4) color = '#ff8800';
-                if (speed > 0.6) color = '#ff0000';
-
-                // 矢印描画（簡易版：ポリラインで実装）
-                const arrowLength = 0.05 * scale * (speed + 0.5);
                 const rad = bearing * Math.PI / 180;
-                const endLat = p.lat + arrowLength * Math.cos(rad);
-                const endLon = p.lon + arrowLength * Math.sin(rad) / Math.cos(p.lat * Math.PI / 180);
+                const endLat = p.lat + len * Math.cos(rad);
+                const endLon = p.lon + len * Math.sin(rad) / Math.cos(p.lat * Math.PI / 180);
 
-                const line = L.polyline(
-                    [[p.lat, p.lon], [endLat, endLon]],
-                    { color: color, weight: 2, opacity: 0.7 }
-                ).addTo(map);
-
-                // マウスホバー時に情報表示
-                line.on('mouseover', () => {
-                    setStatus(`流速: ${speed.toFixed(3)} m/s | 方向: ${(bearing + 180).toFixed(0)}°`);
+                const line = L.polyline([[p.lat, p.lon], [endLat, endLon]], {
+                    color: color,
+                    weight: 2,
+                    opacity: 0.8
                 });
 
-                arrows.push(line);
+                group.addLayer(line);
             }
 
-            setStatus(`✓ ${arrows.length} 本の矢印を描画しました`);
+            vizLayer = group;
+            map.addLayer(vizLayer);
         }
 
-        // 初期表示
-        setStatus('JSON ファイルを選択してください');
+        // 矢羽描画（簡易版）
+        function drawBarbs(points, scale, colorBySpeed, maxSpeed) {
+            const group = L.featureGroup();
+
+            for (const p of points) {
+                const u = p.u || 0;
+                const v = p.v || 0;
+                const speed = Math.sqrt(u * u + v * v);
+                const color = colorBySpeed ? speedToColor(speed, maxSpeed) : '#ff6600';
+
+                // 簡易矢羽（円 + テキスト）
+                const circle = L.circleMarker([p.lat, p.lon], {
+                    radius: 4,
+                    fillColor: color,
+                    color: '#fff',
+                    weight: 1,
+                    opacity: 1,
+                    fillOpacity: 0.8
+                });
+
+                group.addLayer(circle);
+            }
+
+            vizLayer = group;
+            map.addLayer(vizLayer);
+        }
+
+        // 流線描画
+        function drawStreamlines(points, scale, colorBySpeed, maxSpeed) {
+            const canvas = document.createElement('canvas');
+            canvas.width = map.getSize().x;
+            canvas.height = map.getSize().y;
+            const ctx = canvas.getContext('2d');
+
+            const gridSize = 30;
+            for (let x = 0; x < canvas.width; x += gridSize) {
+                for (let y = 0; y < canvas.height; y += gridSize) {
+                    const latLng = map.containerPointToLatLng(L.point(x, y));
+                    const u = sampleUV(latLng.lat, latLng.lng, points).u;
+                    const v = sampleUV(latLng.lat, latLng.lng, points).v;
+                    const speed = Math.sqrt(u * u + v * v);
+
+                    if (speed < 0.01) continue;
+
+                    const color = colorBySpeed ? speedToColor(speed, maxSpeed) : '#00cc88';
+                    const bearing = Math.atan2(u, v) * 180 / Math.PI;
+                    const len = 20;
+
+                    ctx.strokeStyle = color;
+                    ctx.lineWidth = 1.5;
+                    ctx.globalAlpha = 0.6;
+                    ctx.beginPath();
+                    ctx.moveTo(x, y);
+                    const rad = bearing * Math.PI / 180;
+                    ctx.lineTo(x + len * Math.sin(rad), y + len * Math.cos(rad));
+                    ctx.stroke();
+                }
+            }
+
+            vizLayer = L.imageOverlay(canvas.toDataURL(), map.getBounds());
+            map.addLayer(vizLayer);
+        }
+
+        // 粒子追跡描画
+        function drawParticles(points, scale, maxSpeed) {
+            const canvas = document.createElement('canvas');
+            canvas.width = map.getSize().x;
+            canvas.height = map.getSize().y;
+            canvas.style.position = 'absolute';
+            canvas.style.top = '0';
+            canvas.style.left = '0';
+            canvas.style.pointerEvents = 'none';
+
+            const ctx = canvas.getContext('2d');
+
+            // 簡易粒子アニメーション（5フレーム）
+            for (let frame = 0; frame < 5; frame++) {
+                ctx.fillStyle = `rgba(0, 100, 255, ${0.2 - frame * 0.04})`;
+                for (const p of points) {
+                    const u = (p.u || 0) * scale * 0.01;
+                    const v = (p.v || 0) * scale * 0.01;
+                    const pos = map.latLngToContainerPoint([p.lat + v * frame, p.lon + u * frame]);
+                    ctx.beginPath();
+                    ctx.arc(pos.x, pos.y, 3, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+
+            vizLayer = L.imageOverlay(canvas.toDataURL(), map.getBounds());
+            map.addLayer(vizLayer);
+        }
+
+        // UV 補間
+        function sampleUV(lat, lng, points) {
+            let closestDist = Infinity;
+            let closestUV = { u: 0, v: 0 };
+
+            for (const p of points) {
+                const dist = Math.pow(lat - p.lat, 2) + Math.pow(lng - p.lon, 2);
+                if (dist < closestDist) {
+                    closestDist = dist;
+                    closestUV = { u: p.u, v: p.v };
+                }
+            }
+
+            return closestUV;
+        }
+
+        // 初期化
+        window.addEventListener('load', () => {
+            initMap();
+            setStatus('JSON ファイルを選択してください');
+        });
     </script>
 </body>
 </html>

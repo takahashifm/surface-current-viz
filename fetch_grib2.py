@@ -9,7 +9,7 @@ https://metingest01.glinnovation.jp/dataput/jmbsc/OCN_GPV_Rnwpa/
 import os
 import sys
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
 import ssl
 
 # SSL証明書エラーを無視
@@ -43,21 +43,22 @@ def fetch_grib2(forecast_day=1):
         print(f"❌ 予報日は 1-10 の範囲です: {forecast_day}")
         return False
 
-    # ファイル名パターン: Z__C_RJTD_<タイムスタンプ>_OCN_GPV_Rjp_Gll2km_Lz1100-6150_Pcur_FD<NN>_grib2.bin
-    # タイムスタンプは初期時刻（例：20260405000000）
-    # 実装では、最新のデータを探すため、複数のタイムスタンプをトライ
+    # ファイル名パターン: Z__C_RJTD_<タイムスタンプ>_OCN_GPV_Rjp_Gll2km_Lsurf_Pssh_FD<NN>_grib2.bin
+    # タイムスタンプは初期時刻（例：20260402000000）
+    # 実装では、最新のデータを探すため、複数の日付をトライ
 
-    # 現在時刻から推測されるタイムスタンプパターン
     now = datetime.utcnow()
-    timestamps = [
-        now.strftime("%Y%m%d000000"),  # 当日 00:00
-        now.strftime("%Y%m%d120000"),  # 当日 12:00
+    # 過去3日分をトライ（最新データを探す）
+    dates_to_try = [
+        (now - timedelta(days=0)).strftime("%Y%m%d000000"),
+        (now - timedelta(days=1)).strftime("%Y%m%d000000"),
+        (now - timedelta(days=2)).strftime("%Y%m%d000000"),
     ]
 
     fd_str = f"FD{forecast_day:02d}"
 
-    for ts in timestamps:
-        filename = f"Z__C_RJTD_{ts}_OCN_GPV_Rjp_Gll2km_Lz1100-6150_Pcur_{fd_str}_grib2.bin"
+    for ts in dates_to_try:
+        filename = f"Z__C_RJTD_{ts}_OCN_GPV_Rjp_Gll2km_Lz1-1000_Pcur_{fd_str}_grib2.bin"
         url = BASE_URL + filename
 
         print(f"📥 ダウンロード試行: {filename}")
