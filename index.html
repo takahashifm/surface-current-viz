@@ -655,38 +655,64 @@
             map.addLayer(vizLayer);
         }
 
-        // 流線描画
+        // 流線描画（カスタムCanvasLayer）
         function drawStreamlines(points, scale, colorBySpeed, maxSpeed) {
-            const canvas = document.createElement('canvas');
-            canvas.width = map.getSize().x;
-            canvas.height = map.getSize().y;
-            const ctx = canvas.getContext('2d');
+            const StreamlineLayer = L.CanvasLayer ? L.CanvasLayer : L.Layer.extend({
+                onAdd: function(map) {
+                    if (!this._canvas) {
+                        this._canvas = document.createElement('canvas');
+                        this._canvas.style.position = 'absolute';
+                        this._canvas.style.top = '0';
+                        this._canvas.style.left = '0';
+                        this._canvas.style.pointerEvents = 'none';
+                        map._panes.overlayPane.appendChild(this._canvas);
+                    }
+                    this._map = map;
+                    this._resizeCanvas();
+                    this._draw();
+                    map.on('move zoom', this._draw, this);
+                },
+                onRemove: function(map) {
+                    if (this._canvas) this._canvas.remove();
+                    map.off('move zoom', this._draw, this);
+                },
+                _resizeCanvas: function() {
+                    const size = this._map.getSize();
+                    this._canvas.width = size.x;
+                    this._canvas.height = size.y;
+                },
+                _draw: function() {
+                    const ctx = this._canvas.getContext('2d');
+                    ctx.clearRect(0, 0, this._canvas.width, this._canvas.height);
 
-            const gridSize = 30;
-            for (let x = 0; x < canvas.width; x += gridSize) {
-                for (let y = 0; y < canvas.height; y += gridSize) {
-                    const latLng = map.containerPointToLatLng(L.point(x, y));
-                    const uv = sampleUV(latLng.lat, latLng.lng, points);
-                    const speed = Math.sqrt(uv.u * uv.u + uv.v * uv.v);
+                    const gridSize = 30;
+                    for (let x = 0; x < this._canvas.width; x += gridSize) {
+                        for (let y = 0; y < this._canvas.height; y += gridSize) {
+                            const latLng = this._map.containerPointToLatLng(L.point(x, y));
+                            const uv = sampleUV(latLng.lat, latLng.lng, points);
+                            const speed = Math.sqrt(uv.u * uv.u + uv.v * uv.v);
 
-                    if (speed < 0.01) continue;
+                            if (speed < 0.01) continue;
 
-                    const color = colorBySpeed ? speedToColor(speed, maxSpeed) : '#00cc88';
-                    const bearing = Math.atan2(uv.u, uv.v) * 180 / Math.PI;
-                    const len = 20;
+                            const color = colorBySpeed ? speedToColor(speed, maxSpeed) : '#00cc88';
+                            const bearing = Math.atan2(uv.u, uv.v) * 180 / Math.PI;
+                            const len = 20;
 
-                    ctx.strokeStyle = color;
-                    ctx.lineWidth = 1.5;
-                    ctx.globalAlpha = 0.6;
-                    ctx.beginPath();
-                    ctx.moveTo(x, y);
-                    const rad = bearing * Math.PI / 180;
-                    ctx.lineTo(x + len * Math.sin(rad), y + len * Math.cos(rad));
-                    ctx.stroke();
+                            ctx.strokeStyle = color;
+                            ctx.lineWidth = 1.5;
+                            ctx.globalAlpha = 0.7;
+                            ctx.beginPath();
+                            ctx.moveTo(x, y);
+                            const rad = bearing * Math.PI / 180;
+                            ctx.lineTo(x + len * Math.sin(rad), y + len * Math.cos(rad));
+                            ctx.stroke();
+                        }
+                    }
+                    ctx.globalAlpha = 1.0;
                 }
-            }
+            });
 
-            vizLayer = L.imageOverlay(canvas.toDataURL(), map.getBounds());
+            vizLayer = new StreamlineLayer();
             map.addLayer(vizLayer);
         }
 
