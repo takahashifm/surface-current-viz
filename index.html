@@ -770,6 +770,19 @@
             map._panes.overlayPane.appendChild(canvas);
 
             particleTracker = new ParticleTracker(canvas, points, maxSpeed, particleSpeed);
+
+            // パン・ズーム時にキャンバスをリセット
+            const updateCanvasSize = () => {
+                const size = map.getSize();
+                if (canvas.width !== size.x || canvas.height !== size.y) {
+                    canvas.width = size.x;
+                    canvas.height = size.y;
+                }
+            };
+
+            map.on('move', updateCanvasSize);
+            map.on('resize', updateCanvasSize);
+
             particleTracker.start();
 
             vizLayer = {
@@ -778,6 +791,8 @@
                         particleTracker.stop();
                         particleTracker = null;
                     }
+                    map.off('move', updateCanvasSize);
+                    map.off('resize', updateCanvasSize);
                     canvas.remove();
                 }
             };
