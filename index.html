@@ -306,6 +306,13 @@
             }
 
             animate() {
+                // マップサイズ変更（ズーム等）をチェック
+                const mapSize = map.getSize();
+                if (this.canvas.width !== mapSize.x || this.canvas.height !== mapSize.y) {
+                    this.canvas.width = mapSize.x;
+                    this.canvas.height = mapSize.y;
+                }
+
                 // 背景を完全に透明にクリア
                 this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
