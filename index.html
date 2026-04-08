@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Surface Current Visualizer</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #0a0e27;
+            color: #e0e8f0;
+        }
+        #container {
+            display: flex;
+            height: 100vh;
+        }
+        #sidebar {
+            width: 300px;
+            background: #1a2a4a;
+            padding: 20px;
+            overflow-y: auto;
+            border-right: 1px solid #2a4a7a;
+        }
+        #map {
+            flex: 1;
+            position: relative;
+        }
+        h1 {
+            font-size: 18px;
+            margin-bottom: 20px;
+            color: #64b5f6;
+        }
+        .section {
+            margin-bottom: 20px;
+            padding: 15px;
+            background: #0f1a32;
+            border-left: 3px solid #64b5f6;
+            border-radius: 4px;
+        }
+        .section-title {
+            font-size: 14px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #90caf9;
+        }
+        .control-group {
+            margin-bottom: 12px;
+        }
+        label {
+            display: block;
+            font-size: 12px;
+            margin-bottom: 5px;
+            color: #b3e5fc;
+        }
+        input[type="file"],
+        input[type="range"],
+        select {
+            width: 100%;
+            padding: 6px;
+            background: #1e3a5f;
+            color: #e0e8f0;
+            border: 1px solid #2a5080;
+            border-radius: 3px;
+            font-size: 12px;
+        }
+        button {
+            width: 100%;
+            padding: 8px 12px;
+            background: #64b5f6;
+            color: #0a0e27;
+            border: none;
+            border-radius: 4px;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 12px;
+            transition: background 0.3s;
+        }
+        button:hover { background: #90caf9; }
+        button:active { background: #42a5f5; }
+        .info-box {
+            background: rgba(100, 181, 246, 0.1);
+            padding: 10px;
+            border-left: 2px solid #64b5f6;
+            font-size: 11px;
+            margin-bottom: 10px;
+            border-radius: 2px;
+        }
+        #status {
+            font-size: 11px;
+            margin-top: 10px;
+            padding: 8px;
+            background: rgba(0, 200, 100, 0.2);
+            border-left: 2px solid #00c864;
+            border-radius: 2px;
+        }
+        .leaflet-control {
+            background: #1a2a4a;
+            color: #e0e8f0;
+            border: 1px solid #2a4a7a;
+        }
+        .leaflet-control-attribution {
+            background: rgba(26, 42, 74, 0.8);
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div id="sidebar">
+            <h1>🌊 Surface Current</h1>
+
+            <div class="section">
+                <div class="section-title">データ読み込み</div>
+                <div class="info-box">
+                    processsed/ フォルダの JSON ファイルを選択して読み込みます。
+                </div>
+                <div class="control-group">
+                    <label>JSON ファイル選択</label>
+                    <input type="file" id="jsonFile" accept=".json">
+                </div>
+                <button onclick="loadJSON()">読み込む</button>
+            </div>
+
+            <div class="section">
+                <div class="section-title">可視化設定</div>
+                <div class="control-group">
+                    <label>矢印表示間隔</label>
+                    <input type="range" id="arrowSpacing" min="1" max="20" value="5"
+                           oninput="updateDisplay()">
+                    <span id="arrowSpacingValue">5</span>
+                </div>
+                <div class="control-group">
+                    <label>矢印スケール</label>
+                    <input type="range" id="arrowScale" min="0.5" max="5" step="0.5" value="1.5"
+                           oninput="updateDisplay()">
+                    <span id="arrowScaleValue">1.5×</span>
+                </div>
+                <div class="control-group">
+                    <label>
+                        <input type="checkbox" id="showContour" checked onchange="updateDisplay()">
+                        等値線表示
+                    </label>
+                </div>
+            </div>
+
+            <div class="section">
+                <div class="section-title">情報</div>
+                <div id="status">待機中...</div>
+                <div style="font-size: 10px; margin-top: 10px; color: #90caf9;">
+                    <p>👆 地図上にマウスを移動して流速情報を確認</p>
+                </div>
+            </div>
+        </div>
+
+        <div id="map"></div>
+    </div>
+
+    <script>
+        // Map初期化
+        const map = L.map('map').setView([35.5, 142.0], 7);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors',
+            maxZoom: 19
+        }).addTo(map);
+
+        let currentData = null;
+        let arrows = [];
+
+        function el(id) { return document.getElementById(id); }
+
+        function setStatus(msg) {
+            el('status').textContent = msg;
+            console.log(msg);
+        }
+
+        function loadJSON() {
+            const fileInput = el('jsonFile');
+            if (!fileInput.files.length) {
+                alert('ファイルを選択してください');
+                return;
+            }
+
+            const file = fileInput.files[0];
+            const reader = new FileReader();
+
+            reader.onload = (e) => {
+                try {
+                    currentData = JSON.parse(e.target.result);
+                    setStatus(`✓ ${file.name} を読み込みました（${currentData.data.length} ポイント）`);
+                    updateDisplay();
+                } catch (err) {
+                    setStatus(`❌ JSON パースエラー: ${err.message}`);
+                }
+            };
+
+            reader.readAsText(file);
+        }
+
+        function updateDisplay() {
+            if (!currentData || !currentData.data) {
+                setStatus('データが読み込まれていません');
+                return;
+            }
+
+            // 既存の矢印を削除
+            arrows.forEach(arrow => map.removeLayer(arrow));
+            arrows = [];
+
+            const spacing = parseInt(el('arrowSpacing').value);
+            const scale = parseFloat(el('arrowScale').value);
+
+            el('arrowSpacingValue').textContent = spacing;
+            el('arrowScaleValue').textContent = scale.toFixed(1) + '×';
+
+            // 矢印を描画
+            const points = currentData.data;
+            for (let i = 0; i < points.length; i += spacing) {
+                const p = points[i];
+                if (!p.lat || !p.lon) continue;
+
+                const u = p.u || 0;
+                const v = p.v || 0;
+                const speed = Math.sqrt(u * u + v * v);
+                const bearing = Math.atan2(u, v) * 180 / Math.PI;
+
+                // 速度に応じて色を変更
+                let color = '#00ff00';
+                if (speed > 0.2) color = '#ffff00';
+                if (speed > 0.4) color = '#ff8800';
+                if (speed > 0.6) color = '#ff0000';
+
+                // 矢印描画（簡易版：ポリラインで実装）
+                const arrowLength = 0.05 * scale * (speed + 0.5);
+                const rad = bearing * Math.PI / 180;
+                const endLat = p.lat + arrowLength * Math.cos(rad);
+                const endLon = p.lon + arrowLength * Math.sin(rad) / Math.cos(p.lat * Math.PI / 180);
+
+                const line = L.polyline(
+                    [[p.lat, p.lon], [endLat, endLon]],
+                    { color: color, weight: 2, opacity: 0.7 }
+                ).addTo(map);
+
+                // マウスホバー時に情報表示
+                line.on('mouseover', () => {
+                    setStatus(`流速: ${speed.toFixed(3)} m/s | 方向: ${(bearing + 180).toFixed(0)}°`);
+                });
+
+                arrows.push(line);
+            }
+
+            setStatus(`✓ ${arrows.length} 本の矢印を描画しました`);
+        }
+
+        // 初期表示
+        setStatus('JSON ファイルを選択してください');
+    </script>
+</body>
+</html>
