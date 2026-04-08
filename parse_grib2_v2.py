@@ -17,8 +17,11 @@ DATA_DIR = "data"
 PROCESSED_DIR = "processed"
 os.makedirs(PROCESSED_DIR, exist_ok=True)
 
-LAT_MIN = 41.0  # 北緯 41° 以上のみ
-STEP = 5  # グリッド間隔（5ポイントおき）
+LAT_MIN = 41.0  # 北緯 41° 以上
+LAT_MAX = 44.0  # 北緯 44° 以下
+LON_MIN = 143.0  # 東経 143° 以上
+LON_MAX = 147.0  # 東経 147° 以下
+STEP = 2  # グリッド間隔（2ポイントおき、約1km）
 
 def parse_grib2_file(filepath):
     """
@@ -53,8 +56,12 @@ def parse_grib2_file(filepath):
                 lat = float(lats[i, j])
                 lon = float(lons[i, j])
 
-                # 北緯 41° 以上のみ
-                if lat < LAT_MIN:
+                # 北緯 41° 以上、44° 以下
+                if lat < LAT_MIN or lat > LAT_MAX:
+                    continue
+
+                # 東経 143° 以上、147° 以下
+                if lon < LON_MIN or lon > LON_MAX:
                     continue
 
                 u = float(u_vals[i, j])

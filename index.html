@@ -202,6 +202,10 @@
                     <input type="range" id="scaleSlider" min="0.5" max="3" step="0.5" value="1" oninput="updateDisplay()">
                 </div>
                 <div class="control-group">
+                    <label>粒子速度 <span class="slider-value" id="particleSpeedValue">1.0×</span></label>
+                    <input type="range" id="particleSpeedSlider" min="0.5" max="3" step="0.5" value="1" oninput="updateDisplay()">
+                </div>
+                <div class="control-group">
                     <label>
                         <input type="checkbox" id="colorBySpeed" checked onchange="updateDisplay()">
                         速度で色分け
@@ -242,11 +246,138 @@
         let map = null;
         let vizLayer = null;
         let timelineTimer = null;
+        let particleTracker = null;
         const LAT_MIN = 41.0;
+
+        // ParticleTracker クラス（Windy風アニメーション）
+        class ParticleTracker {
+            constructor(canvas, points, maxSpeed, speedMul) {
+                this.canvas = canvas;
+                this.ctx = canvas.getContext('2d');
+                this.points = points;
+                this.maxSpeed = maxSpeed;
+                this.speedMul = speedMul || 1.0;
+                this.particles = [];
+                this.animationId = null;
+                this.bbox = this.computeBBox(points);
+                this.initParticles();
+            }
+
+            computeBBox(points) {
+                let minLat = Infinity, maxLat = -Infinity;
+                let minLon = Infinity, maxLon = -Infinity;
+                for (const p of points) {
+                    minLat = Math.min(minLat, p.lat);
+                    maxLat = Math.max(maxLat, p.lat);
+                    minLon = Math.min(minLon, p.lon);
+                    maxLon = Math.max(maxLon, p.lon);
+                }
+                return { minLat, maxLat, minLon, maxLon };
+            }
+
+            initParticles() {
+                this.particles = [];
+                const particleCount = Math.max(1000, this.points.length * 2);
+                for (let i = 0; i < particleCount; i++) {
+                    this.particles.push(this.randomParticle());
+                }
+            }
+
+            randomParticle() {
+                const lat = this.bbox.minLat + Math.random() * (this.bbox.maxLat - this.bbox.minLat);
+                const lon = this.bbox.minLon + Math.random() * (this.bbox.maxLon - this.bbox.minLon);
+                return { lat, lon, age: 0 };
+            }
+
+            updatePoints(points) {
+                this.points = points;
+                this.bbox = this.computeBBox(points);
+            }
+
+            speedToColor(speed) {
+                const ratio = Math.min(speed / this.maxSpeed, 1.0);
+                let hue;
+                if (ratio < 0.25) hue = 240;       // 青
+                else if (ratio < 0.5) hue = 180;   // シアン
+                else if (ratio < 0.75) hue = 120;  // 緑
+                else if (ratio < 0.9) hue = 60;    // 黄
+                else hue = 0;                      // 赤
+                return `hsl(${hue}, 100%, 50%)`;
+            }
+
+            animate() {
+                // 背景をクリア（透明度でトレイル効果）
+                this.ctx.fillStyle = 'rgba(10, 14, 39, 0.1)';
+                this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+                const dt = 0.1 * this.speedMul;
+
+                for (let i = 0; i < this.particles.length; i++) {
+                    const p = this.particles[i];
+
+                    // UV 値を補間で取得
+                    const uv = this.sampleUV(p.lat, p.lon);
+                    const speed = Math.sqrt(uv.u * uv.u + uv.v * uv.v);
+
+                    // 粒子を更新
+                    p.lat += uv.v * dt;
+                    p.lon += uv.u * dt / Math.cos(p.lat * Math.PI / 180);
+                    p.age += 1;
+
+                    // 境界外の場合は再初期化
+                    if (p.lat < this.bbox.minLat || p.lat > this.bbox.maxLat ||
+                        p.lon < this.bbox.minLon || p.lon > this.bbox.maxLon ||
+                        p.age > 500) {
+                        this.particles[i] = this.randomParticle();
+                        continue;
+                    }
+
+                    // キャンバス座標に変換
+                    const pos = map.latLngToContainerPoint([p.lat, p.lon]);
+
+                    // 粒子を描画
+                    const color = this.speedToColor(speed);
+                    this.ctx.fillStyle = color;
+                    this.ctx.globalAlpha = 0.7;
+                    this.ctx.beginPath();
+                    this.ctx.arc(pos.x, pos.y, 2, 0, Math.PI * 2);
+                    this.ctx.fill();
+                }
+
+                this.ctx.globalAlpha = 1.0;
+                this.animationId = requestAnimationFrame(() => this.animate());
+            }
+
+            sampleUV(lat, lon) {
+                let closestDist = Infinity;
+                let closestUV = { u: 0, v: 0 };
+
+                for (const p of this.points) {
+                    const dist = Math.pow(lat - p.lat, 2) + Math.pow(lon - p.lon, 2);
+                    if (dist < closestDist) {
+                        closestDist = dist;
+                        closestUV = { u: p.u || 0, v: p.v || 0 };
+                    }
+                }
+
+                return closestUV;
+            }
+
+            start() {
+                this.animate();
+            }
+
+            stop() {
+                if (this.animationId) {
+                    cancelAnimationFrame(this.animationId);
+                    this.animationId = null;
+                }
+            }
+        }
 
         // 初期化
         function initMap() {
-            map = L.map('map').setView([44.0, 143.5], 7);
+            map = L.map('map').setView([43.0, 145.0], 7);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 attribution: '© OpenStreetMap',
                 maxZoom: 19,
@@ -308,6 +439,12 @@
             });
             event.target.classList.add('active');
 
+            // 粒子追跡の停止
+            if (particleTracker) {
+                particleTracker.stop();
+                particleTracker = null;
+            }
+
             updateDisplay();
         }
 
@@ -351,12 +488,17 @@
             if (vizLayer) {
                 map.removeLayer(vizLayer);
             }
+            if (particleTracker) {
+                particleTracker.stop();
+                particleTracker = null;
+            }
 
             const entry = allData.entries[currentEntryIdx];
             const points = filterByLatitude(entry.data);
 
             const density = parseInt(el('densitySlider').value);
             const scale = parseFloat(el('scaleSlider').value);
+            const particleSpeed = parseFloat(el('particleSpeedSlider').value);
             const colorBySpeed = el('colorBySpeed').checked;
             const maxSpeed = parseFloat(el('maxSpeedSlider').value);
 
@@ -378,12 +520,13 @@
                     drawStreamlines(points, scale, colorBySpeed, maxSpeed);
                     break;
                 case 'particle':
-                    drawParticles(sampledPoints, scale, maxSpeed);
+                    drawParticles(points, scale, colorBySpeed, maxSpeed, particleSpeed);
                     break;
             }
 
             el('densityValue').textContent = density;
             el('scaleValue').textContent = scale.toFixed(1) + '×';
+            el('particleSpeedValue').textContent = particleSpeed.toFixed(1) + '×';
             el('maxSpeedValue').textContent = maxSpeed.toFixed(1);
             setStatus(`✓ ${sampledPoints.length} 本の矢印を描画（モード: ${vizMode}）`);
         }
@@ -396,14 +539,16 @@
         // カラーマップ（速度 → 色）
         function speedToColor(speed, maxSpeed) {
             const ratio = Math.min(speed / maxSpeed, 1.0);
-            if (ratio < 0.25) return '#0088ff';      // 青
-            if (ratio < 0.5) return '#00ffff';       // シアン
-            if (ratio < 0.75) return '#00ff00';      // 緑
-            if (ratio < 0.9) return '#ffff00';       // 黄
-            return '#ff0000';                        // 赤
+            let hue;
+            if (ratio < 0.25) hue = 240;       // 青
+            else if (ratio < 0.5) hue = 180;   // シアン
+            else if (ratio < 0.75) hue = 120;  // 緑
+            else if (ratio < 0.9) hue = 60;    // 黄
+            else hue = 0;                      // 赤
+            return `hsl(${hue}, 100%, 50%)`;
         }
 
-        // ベクター矢印描画
+        // ベクター矢印描画（改善版、矢印ヘッド付き）
         function drawArrows(points, scale, colorBySpeed, maxSpeed) {
             const group = L.featureGroup();
 
@@ -427,13 +572,38 @@
                 });
 
                 group.addLayer(line);
+
+                // 矢印ヘッドを追加
+                const arrowSize = 0.01;
+                const angle1 = rad + 2.6;  // 150度
+                const angle2 = rad - 2.6;
+
+                const head1Lat = endLat + arrowSize * Math.cos(angle1);
+                const head1Lon = endLon + arrowSize * Math.sin(angle1) / Math.cos(endLat * Math.PI / 180);
+
+                const head2Lat = endLat + arrowSize * Math.cos(angle2);
+                const head2Lon = endLon + arrowSize * Math.sin(angle2) / Math.cos(endLat * Math.PI / 180);
+
+                const arrowLine1 = L.polyline([[endLat, endLon], [head1Lat, head1Lon]], {
+                    color: color,
+                    weight: 2,
+                    opacity: 0.8
+                });
+                const arrowLine2 = L.polyline([[endLat, endLon], [head2Lat, head2Lon]], {
+                    color: color,
+                    weight: 2,
+                    opacity: 0.8
+                });
+
+                group.addLayer(arrowLine1);
+                group.addLayer(arrowLine2);
             }
 
             vizLayer = group;
             map.addLayer(vizLayer);
         }
 
-        // 矢羽描画（簡易版）
+        // 矢羽描画（改善版）
         function drawBarbs(points, scale, colorBySpeed, maxSpeed) {
             const group = L.featureGroup();
 
@@ -443,17 +613,42 @@
                 const speed = Math.sqrt(u * u + v * v);
                 const color = colorBySpeed ? speedToColor(speed, maxSpeed) : '#ff6600';
 
-                // 簡易矢羽（円 + テキスト）
-                const circle = L.circleMarker([p.lat, p.lon], {
-                    radius: 4,
-                    fillColor: color,
-                    color: '#fff',
-                    weight: 1,
-                    opacity: 1,
-                    fillOpacity: 0.8
+                // ベースの矢印を描画
+                const bearing = Math.atan2(u, v) * 180 / Math.PI;
+                const len = Math.max(0.02, Math.min(0.15, speed * scale * 0.04));
+
+                const rad = bearing * Math.PI / 180;
+                const endLat = p.lat + len * Math.cos(rad);
+                const endLon = p.lon + len * Math.sin(rad) / Math.cos(p.lat * Math.PI / 180);
+
+                const line = L.polyline([[p.lat, p.lon], [endLat, endLon]], {
+                    color: color,
+                    weight: 2,
+                    opacity: 0.8
                 });
 
-                group.addLayer(circle);
+                group.addLayer(line);
+
+                // 羽根を描画（速度に応じた本数）
+                const barbCount = Math.floor(speed * scale * 3);
+                for (let i = 0; i < barbCount && i < 5; i++) {
+                    const barbPos = (i + 1) / (barbCount + 1);
+                    const barbLat = p.lat + len * Math.cos(rad) * barbPos;
+                    const barbLon = p.lon + len * Math.sin(rad) * barbPos / Math.cos(p.lat * Math.PI / 180);
+
+                    const barbLen = 0.01;
+                    const barbAngle = rad + Math.PI / 4;
+                    const barbEndLat = barbLat + barbLen * Math.cos(barbAngle);
+                    const barbEndLon = barbLon + barbLen * Math.sin(barbAngle) / Math.cos(barbLat * Math.PI / 180);
+
+                    const barbLine = L.polyline([[barbLat, barbLon], [barbEndLat, barbEndLon]], {
+                        color: color,
+                        weight: 1.5,
+                        opacity: 0.7
+                    });
+
+                    group.addLayer(barbLine);
+                }
             }
 
             vizLayer = group;
@@ -471,14 +666,13 @@
             for (let x = 0; x < canvas.width; x += gridSize) {
                 for (let y = 0; y < canvas.height; y += gridSize) {
                     const latLng = map.containerPointToLatLng(L.point(x, y));
-                    const u = sampleUV(latLng.lat, latLng.lng, points).u;
-                    const v = sampleUV(latLng.lat, latLng.lng, points).v;
-                    const speed = Math.sqrt(u * u + v * v);
+                    const uv = sampleUV(latLng.lat, latLng.lng, points);
+                    const speed = Math.sqrt(uv.u * uv.u + uv.v * uv.v);
 
                     if (speed < 0.01) continue;
 
                     const color = colorBySpeed ? speedToColor(speed, maxSpeed) : '#00cc88';
-                    const bearing = Math.atan2(u, v) * 180 / Math.PI;
+                    const bearing = Math.atan2(uv.u, uv.v) * 180 / Math.PI;
                     const len = 20;
 
                     ctx.strokeStyle = color;
@@ -496,8 +690,8 @@
             map.addLayer(vizLayer);
         }
 
-        // 粒子追跡描画
-        function drawParticles(points, scale, maxSpeed) {
+        // 粒子追跡描画（Windy風）
+        function drawParticles(points, scale, colorBySpeed, maxSpeed, particleSpeed) {
             const canvas = document.createElement('canvas');
             canvas.width = map.getSize().x;
             canvas.height = map.getSize().y;
@@ -506,23 +700,20 @@
             canvas.style.left = '0';
             canvas.style.pointerEvents = 'none';
 
-            const ctx = canvas.getContext('2d');
+            map._panes.overlayPane.appendChild(canvas);
 
-            // 簡易粒子アニメーション（5フレーム）
-            for (let frame = 0; frame < 5; frame++) {
-                ctx.fillStyle = `rgba(0, 100, 255, ${0.2 - frame * 0.04})`;
-                for (const p of points) {
-                    const u = (p.u || 0) * scale * 0.01;
-                    const v = (p.v || 0) * scale * 0.01;
-                    const pos = map.latLngToContainerPoint([p.lat + v * frame, p.lon + u * frame]);
-                    ctx.beginPath();
-                    ctx.arc(pos.x, pos.y, 3, 0, Math.PI * 2);
-                    ctx.fill();
+            particleTracker = new ParticleTracker(canvas, points, maxSpeed, particleSpeed);
+            particleTracker.start();
+
+            vizLayer = {
+                remove: () => {
+                    if (particleTracker) {
+                        particleTracker.stop();
+                        particleTracker = null;
+                    }
+                    canvas.remove();
                 }
-            }
-
-            vizLayer = L.imageOverlay(canvas.toDataURL(), map.getBounds());
-            map.addLayer(vizLayer);
+            };
         }
 
         // UV 補間
