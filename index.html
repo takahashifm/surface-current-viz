@@ -544,8 +544,40 @@
         // 初期化
         window.addEventListener('load', () => {
             initMap();
-            setStatus('JSON ファイルを選択してください');
+
+            // GitHub Pages 環境では自動的に JSON を読み込む
+            const isGitHubPages = window.location.hostname.includes('github.io');
+            if (isGitHubPages) {
+                loadJSONAuto();
+            } else {
+                setStatus('JSON ファイルを選択してください');
+            }
         });
+
+        // 自動 JSON 読み込み
+        function loadJSONAuto() {
+            fetch('processed/ocean_current_data.json')
+                .then(r => r.json())
+                .then(data => {
+                    allData = data;
+                    if (!allData.entries || allData.entries.length === 0) {
+                        throw new Error('entries が見つかりません');
+                    }
+
+                    const slider = el('timeline-slider');
+                    slider.max = allData.entries.length - 1;
+                    slider.value = 0;
+
+                    currentEntryIdx = 0;
+                    updateTimelineLabel();
+                    updateDisplay();
+
+                    setStatus(`✓ 海流データを読み込みました (${allData.entries.length} 時刻)`);
+                })
+                .catch(err => {
+                    setStatus(`ファイル読み込みエラー: ${err.message}。手動で選択してください。`);
+                });
+        }
     </script>
 </body>
 </html>
