@@ -6,6 +6,7 @@
     <title>Surface Current Visualizer - 海面流可視化</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
     <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/proton-engine@2.0.0/dist/proton.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -246,21 +247,21 @@
         let map = null;
         let vizLayer = null;
         let timelineTimer = null;
-        let particleTracker = null;
+        let particleAnimator = null;
         const LAT_MIN = 41.0;
 
-        // ParticleTracker クラス（Windy風アニメーション）
-        class ParticleTracker {
+        // Proton ベースのパーティクルアニメーター
+        class ProtonFlowAnimator {
             constructor(canvas, points, maxSpeed, speedMul) {
                 this.canvas = canvas;
-                this.ctx = canvas.getContext('2d');
                 this.points = points;
                 this.maxSpeed = maxSpeed;
                 this.speedMul = speedMul || 1.0;
-                this.particles = [];
+                this.proton = null;
                 this.animationId = null;
                 this.bbox = this.computeBBox(points);
-                this.initParticles();
+                this.lastCanvasSize = { x: canvas.width, y: canvas.height };
+                this.initProton();
             }
 
             computeBBox(points) {
@@ -275,120 +276,127 @@
                 return { minLat, maxLat, minLon, maxLon };
             }
 
-            initParticles() {
-                this.particles = [];
-                const particleCount = 300;  // より少ない粒子数で個別の流動が見える
-                for (let i = 0; i < particleCount; i++) {
-                    this.particles.push(this.randomParticle());
-                }
+            initProton() {
+                const ctx = this.canvas.getContext('2d');
+                this.proton = new Proton();
+
+                // カスタムレンダラーを作成
+                const self = this;
+                const renderer = {
+                    onProtonUpdate: () => {
+                        // Proton 更新時に海流ベクトルで位置を更新
+                        self.updateParticlesWithFlowVectors();
+                    },
+                    onParticleCreated: (particle) => {
+                        // パーティクル生成時にランダム位置を設定
+                        const lat = self.bbox.minLat + Math.random() * (self.bbox.maxLat - self.bbox.minLat);
+                        const lon = self.bbox.minLon + Math.random() * (self.bbox.maxLon - self.bbox.minLon);
+                        particle.p = { lat, lon };
+                        particle.vx = 0;
+                        particle.vy = 0;
+                    },
+                    onParticleUpdate: (particle) => {
+                        // パーティクル更新（Proton 内部で呼ばれる）
+                    },
+                    onParticleRemoved: (particle) => {
+                        // パーティクル削除時
+                    }
+                };
+
+                // エミッターを作成
+                const emitter = new Proton.Emitter();
+                emitter.rate = new Proton.Rate(new Proton.Span(5000, 5000), new Proton.Span(1));
+                emitter.addInitializer(new Proton.Position(new Proton.RectZone(0, 0, this.canvas.width, this.canvas.height)));
+                emitter.addInitializer(new Proton.Mass(1));
+                emitter.addInitializer(new Proton.Life(500));
+
+                // 速度を海流ベクトルから設定
+                emitter.addBehaviour(new Proton.Color(['#0088ff', '#00ffff', '#00ff00', '#ffff00', '#ff0000']));
+                emitter.addBehaviour(new Proton.Alpha(0.8, 0));
+
+                this.proton.addEmitter(emitter);
+                this.emitter = emitter;
             }
 
-            randomParticle() {
-                const lat = this.bbox.minLat + Math.random() * (this.bbox.maxLat - this.bbox.minLat);
-                const lon = this.bbox.minLon + Math.random() * (this.bbox.maxLon - this.bbox.minLon);
-                return { lat, lon, age: 0, trail: [] };
-            }
-
-            updatePoints(points) {
-                this.points = points;
-                this.bbox = this.computeBBox(points);
-            }
-
-            speedToColor(speed) {
-                const ratio = Math.min(speed / this.maxSpeed, 1.0);
-                let hue;
-                if (ratio < 0.25) hue = 240;       // 青
-                else if (ratio < 0.5) hue = 180;   // シアン
-                else if (ratio < 0.75) hue = 120;  // 緑
-                else if (ratio < 0.9) hue = 60;    // 黄
-                else hue = 0;                      // 赤
-                return `hsl(${hue}, 100%, 50%)`;
-            }
-
-            animate() {
-                // マップサイズ変更（ズーム等）をチェック
+            updateParticlesWithFlowVectors() {
+                // 毎フレームパーティクル位置を海流ベクトルで更新
+                const ctx = this.canvas.getContext('2d');
                 const mapSize = map.getSize();
+
                 if (this.canvas.width !== mapSize.x || this.canvas.height !== mapSize.y) {
                     this.canvas.width = mapSize.x;
                     this.canvas.height = mapSize.y;
                 }
 
-                // 背景を完全に透明にクリア
-                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
-                const dt = 0.1 * this.speedMul;
+                const dt = 0.05 * this.speedMul;
 
-                for (let i = 0; i < this.particles.length; i++) {
-                    const p = this.particles[i];
+                for (let i = 0; i < this.proton.emitters[0].particles.length; i++) {
+                    const particle = this.proton.emitters[0].particles[i];
 
-                    // UV 値を補間で取得
-                    const uv = this.sampleUV(p.lat, p.lon);
+                    if (!particle.p) continue;
+
+                    // 海流ベクトルを取得
+                    const uv = this.sampleUV(particle.p.lat, particle.p.lon);
                     const speed = Math.sqrt(uv.u * uv.u + uv.v * uv.v);
 
-                    // 陸地に到達した場合は再初期化
-                    if (uv.isLand) {
-                        this.particles[i] = this.randomParticle();
+                    // 陸地判定
+                    if (uv.isLand || speed < 0.05) {
+                        particle.dead = true;
                         continue;
                     }
 
-                    // 現在の位置を軌跡に追加
-                    p.trail.push([p.lat, p.lon]);
-                    if (p.trail.length > 80) {  // 軌跡の最大長
-                        p.trail.shift();
-                    }
+                    // 位置を更新
+                    particle.p.lat += uv.v * dt;
+                    particle.p.lon += uv.u * dt / Math.cos(particle.p.lat * Math.PI / 180);
 
-                    // 粒子を更新
-                    p.lat += uv.v * dt;
-                    p.lon += uv.u * dt / Math.cos(p.lat * Math.PI / 180);
-                    p.age += 1;
-
-                    // 境界外または寿命満了の場合は再初期化
-                    if (p.lat < this.bbox.minLat || p.lat > this.bbox.maxLat ||
-                        p.lon < this.bbox.minLon || p.lon > this.bbox.maxLon ||
-                        p.age > 500) {
-                        this.particles[i] = this.randomParticle();
+                    // 境界判定
+                    if (particle.p.lat < this.bbox.minLat || particle.p.lat > this.bbox.maxLat ||
+                        particle.p.lon < this.bbox.minLon || particle.p.lon > this.bbox.maxLon) {
+                        particle.dead = true;
                         continue;
                     }
 
-                    // 軌跡を線で描画（墨流し風）
+                    // キャンバス座標に変換
+                    const pos = map.latLngToContainerPoint([particle.p.lat, particle.p.lon]);
+
+                    // パーティクルを描画
                     const color = this.speedToColor(speed);
-                    this.ctx.strokeStyle = color;
-                    this.ctx.lineWidth = 1.5;
-
-                    for (let j = 0; j < p.trail.length - 1; j++) {
-                        const pos1 = map.latLngToContainerPoint([p.trail[j][0], p.trail[j][1]]);
-                        const pos2 = map.latLngToContainerPoint([p.trail[j + 1][0], p.trail[j + 1][1]]);
-
-                        // 古い軌跡ほど透明度が低い
-                        const trailAlpha = (j / p.trail.length) * 0.8;
-                        this.ctx.globalAlpha = trailAlpha;
-                        this.ctx.beginPath();
-                        this.ctx.moveTo(pos1.x, pos1.y);
-                        this.ctx.lineTo(pos2.x, pos2.y);
-                        this.ctx.stroke();
-                    }
+                    ctx.fillStyle = color;
+                    ctx.globalAlpha = particle.alpha || 0.7;
+                    ctx.beginPath();
+                    ctx.arc(pos.x, pos.y, 2, 0, Math.PI * 2);
+                    ctx.fill();
                 }
 
-                this.ctx.globalAlpha = 1.0;
-                this.animationId = requestAnimationFrame(() => this.animate());
+                ctx.globalAlpha = 1.0;
+            }
+
+            speedToColor(speed) {
+                const ratio = Math.min(speed / this.maxSpeed, 1.0);
+                let hue;
+                if (ratio < 0.25) hue = 240;
+                else if (ratio < 0.5) hue = 180;
+                else if (ratio < 0.75) hue = 120;
+                else if (ratio < 0.9) hue = 60;
+                else hue = 0;
+                return `hsl(${hue}, 100%, 50%)`;
             }
 
             sampleUV(lat, lon) {
                 let closestDist = Infinity;
                 let closestUV = { u: 0, v: 0 };
-                let isValid = false;
 
                 for (const p of this.points) {
                     const dist = Math.pow(lat - p.lat, 2) + Math.pow(lon - p.lon, 2);
                     if (dist < closestDist) {
                         closestDist = dist;
                         closestUV = { u: p.u || 0, v: p.v || 0 };
-                        isValid = true;
                     }
                 }
 
-                // しきい値内（0.05度 ≈ 5km以内）でない場合は陸地と判定
-                if (closestDist > 0.0025) {  // 0.05^2
+                if (closestDist > 0.0025) {
                     return { u: 0, v: 0, isLand: true };
                 }
 
@@ -396,7 +404,13 @@
             }
 
             start() {
-                this.animate();
+                const self = this;
+                const animate = () => {
+                    self.proton.update();
+                    self.updateParticlesWithFlowVectors();
+                    self.animationId = requestAnimationFrame(animate);
+                };
+                animate();
             }
 
             stop() {
@@ -404,6 +418,15 @@
                     cancelAnimationFrame(this.animationId);
                     this.animationId = null;
                 }
+                if (this.proton) {
+                    this.proton.destroy();
+                    this.proton = null;
+                }
+            }
+
+            updatePoints(points) {
+                this.points = points;
+                this.bbox = this.computeBBox(points);
             }
         }
 
@@ -471,10 +494,10 @@
             });
             event.target.classList.add('active');
 
-            // 粒子追跡の停止
-            if (particleTracker) {
-                particleTracker.stop();
-                particleTracker = null;
+            // 粒子アニメーターの停止
+            if (particleAnimator) {
+                particleAnimator.stop();
+                particleAnimator = null;
             }
 
             updateDisplay();
@@ -525,9 +548,9 @@
                 }
                 vizLayer = null;
             }
-            if (particleTracker) {
-                particleTracker.stop();
-                particleTracker = null;
+            if (particleAnimator) {
+                particleAnimator.stop();
+                particleAnimator = null;
             }
 
             const entry = allData.entries[currentEntryIdx];
@@ -753,7 +776,7 @@
             map.addLayer(vizLayer);
         }
 
-        // 粒子追跡描画（Windy風）
+        // 粒子追跡描画（Proton + 海流ベクトル）
         function drawParticles(points, scale, colorBySpeed, maxSpeed, particleSpeed) {
             // 既存のパーティクルキャンバスをすべて削除
             const existingCanvases = document.querySelectorAll('#map canvas[style*="position: absolute"]');
@@ -769,7 +792,7 @@
 
             map._panes.overlayPane.appendChild(canvas);
 
-            particleTracker = new ParticleTracker(canvas, points, maxSpeed, particleSpeed);
+            particleAnimator = new ProtonFlowAnimator(canvas, points, maxSpeed, particleSpeed);
 
             // パン・ズーム時にキャンバスをリセット
             const updateCanvasSize = () => {
@@ -783,13 +806,13 @@
             map.on('move', updateCanvasSize);
             map.on('resize', updateCanvasSize);
 
-            particleTracker.start();
+            particleAnimator.start();
 
             vizLayer = {
                 remove: () => {
-                    if (particleTracker) {
-                        particleTracker.stop();
-                        particleTracker = null;
+                    if (particleAnimator) {
+                        particleAnimator.stop();
+                        particleAnimator = null;
                     }
                     map.off('move', updateCanvasSize);
                     map.off('resize', updateCanvasSize);
