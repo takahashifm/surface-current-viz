@@ -1,6 +1,6 @@
 # Data files
 data/
-processed/
+# processed/ は ocean_current_data.json のために除外しない
 
 # Python
 __pycache__/
