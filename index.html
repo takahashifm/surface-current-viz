@@ -306,9 +306,8 @@
             }
 
             animate() {
-                // 背景を完全に透明にクリア（フェード効果でトレイル感を出す）
-                this.ctx.fillStyle = 'rgba(10, 14, 39, 0.05)';
-                this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+                // 背景を完全に透明にクリア
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
                 const dt = 0.1 * this.speedMul;
 
