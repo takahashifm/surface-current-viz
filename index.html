@@ -306,9 +306,8 @@
             }
 
             animate() {
-                // 背景をクリア（透明度でトレイル効果）
-                this.ctx.fillStyle = 'rgba(10, 14, 39, 0.1)';
-                this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+                // 背景を完全に透明にクリア（トレイル効果は古いパーティクルのフェードで実現）
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
                 const dt = 0.1 * this.speedMul;
 
@@ -335,10 +334,11 @@
                     // キャンバス座標に変換
                     const pos = map.latLngToContainerPoint([p.lat, p.lon]);
 
-                    // 粒子を描画
+                    // 粒子を描画（年齢に基づく透明度：古いほど薄く）
                     const color = this.speedToColor(speed);
                     this.ctx.fillStyle = color;
-                    this.ctx.globalAlpha = 0.7;
+                    const ageAlpha = Math.max(0, 1 - p.age / 500);
+                    this.ctx.globalAlpha = 0.7 * ageAlpha;
                     this.ctx.beginPath();
                     this.ctx.arc(pos.x, pos.y, 2, 0, Math.PI * 2);
                     this.ctx.fill();
