@@ -518,7 +518,12 @@
 
             // 既存レイヤーを削除
             if (vizLayer) {
-                map.removeLayer(vizLayer);
+                if (vizLayer.remove) {
+                    vizLayer.remove();
+                } else {
+                    map.removeLayer(vizLayer);
+                }
+                vizLayer = null;
             }
             if (particleTracker) {
                 particleTracker.stop();
@@ -750,6 +755,10 @@
 
         // 粒子追跡描画（Windy風）
         function drawParticles(points, scale, colorBySpeed, maxSpeed, particleSpeed) {
+            // 既存のパーティクルキャンバスをすべて削除
+            const existingCanvases = document.querySelectorAll('#map canvas[style*="position: absolute"]');
+            existingCanvases.forEach(c => c.remove());
+
             const canvas = document.createElement('canvas');
             canvas.width = map.getSize().x;
             canvas.height = map.getSize().y;
