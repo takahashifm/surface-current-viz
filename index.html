@@ -277,7 +277,7 @@
 
             initParticles() {
                 this.particles = [];
-                const particleCount = Math.max(1000, this.points.length * 2);
+                const particleCount = 300;  // より少ない粒子数で個別の流動が見える
                 for (let i = 0; i < particleCount; i++) {
                     this.particles.push(this.randomParticle());
                 }
@@ -329,10 +329,10 @@
                     p.lon += uv.u * dt / Math.cos(p.lat * Math.PI / 180);
                     p.age += 1;
 
-                    // 境界外の場合は再初期化
+                    // 境界外または寿命満了の場合は再初期化
                     if (p.lat < this.bbox.minLat || p.lat > this.bbox.maxLat ||
                         p.lon < this.bbox.minLon || p.lon > this.bbox.maxLon ||
-                        p.age > 500) {
+                        p.age > 300) {
                         this.particles[i] = this.randomParticle();
                         continue;
                     }
@@ -343,10 +343,11 @@
                     // 粒子を描画（年齢に基づく透明度：古いほど薄く）
                     const color = this.speedToColor(speed);
                     this.ctx.fillStyle = color;
-                    const ageAlpha = Math.max(0, 1 - p.age / 500);
-                    this.ctx.globalAlpha = 0.7 * ageAlpha;
+                    const maxAge = 300;  // より短い寿命
+                    const ageAlpha = Math.max(0, 1 - p.age / maxAge);
+                    this.ctx.globalAlpha = 0.8 * ageAlpha;
                     this.ctx.beginPath();
-                    this.ctx.arc(pos.x, pos.y, 2, 0, Math.PI * 2);
+                    this.ctx.arc(pos.x, pos.y, 1.5, 0, Math.PI * 2);  // より小さい粒子
                     this.ctx.fill();
                 }
 
