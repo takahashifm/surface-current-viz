@@ -6,6 +6,8 @@
     <title>Surface Current Visualizer - 海面流可視化</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
     <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet-velocity@1.9.2/dist/leaflet-velocity.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/leaflet-velocity@1.9.2/dist/leaflet-velocity.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -265,145 +267,70 @@
         let map = null;
         let vizLayer = null;
         let timelineTimer = null;
-        let particleTracer = null;
         const LAT_MIN = 41.0;
 
-        // パーティクルトレイサー（軌跡描画版）
-        class ParticleTracer {
-            constructor(canvas, points, maxSpeed, speedMul) {
-                this.canvas = canvas;
-                this.ctx = canvas.getContext('2d');
-                this.points = points;
-                this.maxSpeed = maxSpeed;
-                this.speedMul = speedMul || 1.0;
-                this.particles = [];
-                this.animationId = null;
-                this.bbox = this.computeBBox(points);
-                this.initParticles();
+        // Leaflet-Velocity 用データフォーマッター
+        function convertToVelocityFormat(entry) {
+            // ポイントデータをグリッド形式に変換
+            // Leaflet-Velocity は {header: {...}, data: [...]} 形式を要求
+
+            // 最小・最大座標を計算
+            let minLat = Infinity, maxLat = -Infinity;
+            let minLon = Infinity, maxLon = -Infinity;
+
+            for (const p of entry.data) {
+                minLat = Math.min(minLat, p.lat);
+                maxLat = Math.max(maxLat, p.lat);
+                minLon = Math.min(minLon, p.lon);
+                maxLon = Math.max(maxLon, p.lon);
             }
 
-            computeBBox(points) {
-                let minLat = Infinity, maxLat = -Infinity;
-                let minLon = Infinity, maxLon = -Infinity;
-                for (const p of points) {
-                    minLat = Math.min(minLat, p.lat);
-                    maxLat = Math.max(maxLat, p.lat);
-                    minLon = Math.min(minLon, p.lon);
-                    maxLon = Math.max(maxLon, p.lon);
-                }
-                return { minLat, maxLat, minLon, maxLon };
-            }
+            // グリッド化（大まかな格子を作成）
+            const latStep = 0.5;
+            const lonStep = 0.5;
+            const gridData = [];
 
-            initParticles() {
-                this.particles = [];
-                const particleCount = 2000;  // earth 風に増加
-                for (let i = 0; i < particleCount; i++) {
-                    this.particles.push(this.randomParticle());
-                }
-            }
-
-            randomParticle() {
-                const lat = this.bbox.minLat + Math.random() * (this.bbox.maxLat - this.bbox.minLat);
-                const lon = this.bbox.minLon + Math.random() * (this.bbox.maxLon - this.bbox.minLon);
-                return { lat, lon, age: 0, trail: [] };
-            }
-
-            speedToColor(speed) {
-                const ratio = Math.min(speed / this.maxSpeed, 1.0);
-                let hue;
-                if (ratio < 0.25) hue = 240;
-                else if (ratio < 0.5) hue = 180;
-                else if (ratio < 0.75) hue = 120;
-                else if (ratio < 0.9) hue = 60;
-                else hue = 0;
-                return `hsl(${hue}, 100%, 50%)`;
-            }
-
-            animate() {
-                const mapSize = map.getSize();
-                if (this.canvas.width !== mapSize.x || this.canvas.height !== mapSize.y) {
-                    this.canvas.width = mapSize.x;
-                    this.canvas.height = mapSize.y;
-                }
-
-                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-                const dt = 0.08 * this.speedMul;
-
-                for (let i = 0; i < this.particles.length; i++) {
-                    const p = this.particles[i];
-                    const uv = this.sampleUV(p.lat, p.lon);
-                    const speed = Math.sqrt(uv.u * uv.u + uv.v * uv.v);
-
-                    if (uv.isLand || speed < 0.05) {
-                        this.particles[i] = this.randomParticle();
-                        continue;
+            for (let lat = minLat; lat <= maxLat; lat += latStep) {
+                for (let lon = minLon; lon <= maxLon; lon += lonStep) {
+                    // 最も近い4つのポイントから補間
+                    let closestPoints = [];
+                    for (const p of entry.data) {
+                        const dist = Math.pow(lat - p.lat, 2) + Math.pow(lon - p.lon, 2);
+                        closestPoints.push({ ...p, dist });
                     }
+                    closestPoints.sort((a, b) => a.dist - b.dist);
+                    closestPoints = closestPoints.slice(0, 4);
 
-                    p.trail.push([p.lat, p.lon]);
-                    if (p.trail.length > 150) {
-                        p.trail.shift();
+                    // 逆距離加重補間
+                    let u = 0, v = 0, wSum = 0;
+                    for (const p of closestPoints) {
+                        const w = 1 / (p.dist + 0.0001);
+                        u += p.u * w;
+                        v += p.v * w;
+                        wSum += w;
                     }
+                    u /= wSum;
+                    v /= wSum;
 
-                    p.lat += uv.v * dt;
-                    p.lon += uv.u * dt / Math.cos(p.lat * Math.PI / 180);
-                    p.age += 1;
-
-                    if (p.lat < this.bbox.minLat || p.lat > this.bbox.maxLat ||
-                        p.lon < this.bbox.minLon || p.lon > this.bbox.maxLon ||
-                        p.age > 800) {
-                        this.particles[i] = this.randomParticle();
-                        continue;
-                    }
-
-                    const color = this.speedToColor(speed);
-                    this.ctx.strokeStyle = color;
-                    this.ctx.lineWidth = 1.2;
-
-                    for (let j = 0; j < p.trail.length - 1; j++) {
-                        const pos1 = map.latLngToContainerPoint([p.trail[j][0], p.trail[j][1]]);
-                        const pos2 = map.latLngToContainerPoint([p.trail[j + 1][0], p.trail[j + 1][1]]);
-                        const trailAlpha = (j / p.trail.length) * 0.7;
-                        this.ctx.globalAlpha = trailAlpha;
-                        this.ctx.beginPath();
-                        this.ctx.moveTo(pos1.x, pos1.y);
-                        this.ctx.lineTo(pos2.x, pos2.y);
-                        this.ctx.stroke();
-                    }
-                }
-
-                this.ctx.globalAlpha = 1.0;
-                this.animationId = requestAnimationFrame(() => this.animate());
-            }
-
-            sampleUV(lat, lon) {
-                let closestDist = Infinity;
-                let closestUV = { u: 0, v: 0 };
-
-                for (const p of this.points) {
-                    const dist = Math.pow(lat - p.lat, 2) + Math.pow(lon - p.lon, 2);
-                    if (dist < closestDist) {
-                        closestDist = dist;
-                        closestUV = { u: p.u || 0, v: p.v || 0 };
-                    }
-                }
-
-                if (closestDist > 0.0025) {
-                    return { u: 0, v: 0, isLand: true };
-                }
-
-                return { u: closestUV.u, v: closestUV.v, isLand: false };
-            }
-
-            start() {
-                this.animate();
-            }
-
-            stop() {
-                if (this.animationId) {
-                    cancelAnimationFrame(this.animationId);
-                    this.animationId = null;
+                    gridData.push([lat, lon, u, v]);
                 }
             }
+
+            return {
+                header: {
+                    parameterNumber: 2,
+                    parameterUnit: 'm/s',
+                    lo1: minLon,
+                    la1: maxLat,
+                    lo2: maxLon,
+                    la2: minLat,
+                    dx: lonStep,
+                    dy: latStep,
+                    nx: Math.floor((maxLon - minLon) / lonStep) + 1,
+                    ny: Math.floor((maxLat - minLat) / latStep) + 1
+                },
+                data: gridData
+            };
         }
 
         // 初期化
@@ -471,10 +398,6 @@
             event.target.classList.add('active');
 
             // 粒子アニメーターの停止
-            if (particleTracer) {
-                particleTracer.stop();
-                particleTracer = null;
-            }
 
             updateDisplay();
         }
@@ -523,10 +446,6 @@
                     map.removeLayer(vizLayer);
                 }
                 vizLayer = null;
-            }
-            if (particleTracer) {
-                particleTracer.stop();
-                particleTracer = null;
             }
 
             const entry = allData.entries[currentEntryIdx];
@@ -627,49 +546,40 @@
         }
 
 
-        // 粒子追跡描画（軌跡版）
+        // 粒子追跡描画（Leaflet-Velocity）
         function drawParticles(points, scale, colorBySpeed, maxSpeed, particleSpeed) {
-            // 既存のパーティクルキャンバスをすべて削除
-            const existingCanvases = document.querySelectorAll('#map canvas[style*="position: absolute"]');
-            existingCanvases.forEach(c => c.remove());
+            if (!allData || !allData.entries[currentEntryIdx]) return;
 
-            const canvas = document.createElement('canvas');
-            canvas.width = map.getSize().x;
-            canvas.height = map.getSize().y;
-            canvas.style.position = 'absolute';
-            canvas.style.top = '0';
-            canvas.style.left = '0';
-            canvas.style.pointerEvents = 'none';
+            const entry = allData.entries[currentEntryIdx];
+            const velocityData = convertToVelocityFormat(entry);
 
-            map._panes.overlayPane.appendChild(canvas);
+            // Leaflet-Velocity レイヤーを作成
+            const velocityLayer = L.velocityLayer({
+                displayValues: true,
+                displayOptions: {
+                    velocityType: 'Current',
+                    position: 'bottom right',
+                    emptyString: 'No data'
+                },
+                data: velocityData.data,
+                maxVelocity: maxSpeed,
+                colorScale: [
+                    '#0088ff', // 青
+                    '#00ffff', // シアン
+                    '#00ff00', // 緑
+                    '#ffff00', // 黄
+                    '#ff0000'  // 赤
+                ],
+                particleAge: 90,
+                particleOpacity: 0.9,
+                particleMultiplier: particleSpeed * 2000,
+                paths: 12,
+                width: 1.5 * (scale / 1.0),
+                padding: 40
+            });
 
-            particleTracer = new ParticleTracer(canvas, points, maxSpeed, particleSpeed);
-
-            // パン・ズーム時にキャンバスをリセット
-            const updateCanvasSize = () => {
-                const size = map.getSize();
-                if (canvas.width !== size.x || canvas.height !== size.y) {
-                    canvas.width = size.x;
-                    canvas.height = size.y;
-                }
-            };
-
-            map.on('move', updateCanvasSize);
-            map.on('resize', updateCanvasSize);
-
-            particleTracer.start();
-
-            vizLayer = {
-                remove: () => {
-                    if (particleTracer) {
-                        particleTracer.stop();
-                        particleTracer = null;
-                    }
-                    map.off('move', updateCanvasSize);
-                    map.off('resize', updateCanvasSize);
-                    canvas.remove();
-                }
-            };
+            vizLayer = velocityLayer;
+            map.addLayer(vizLayer);
         }
 
         // UV 補間
