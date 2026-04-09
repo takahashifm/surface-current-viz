@@ -186,8 +186,6 @@
                 <h2>可視化モード</h2>
                 <div class="mode-buttons">
                     <button class="active" onclick="setVizMode('arrow')">矢印</button>
-                    <button onclick="setVizMode('barb')">矢羽</button>
-                    <button onclick="setVizMode('streamline')">流線</button>
                     <button onclick="setVizMode('particle')">粒子</button>
                 </div>
 
@@ -530,12 +528,6 @@
                 case 'arrow':
                     drawArrows(sampledPoints, scale, colorBySpeed, maxSpeed);
                     break;
-                case 'barb':
-                    drawBarbs(sampledPoints, scale, colorBySpeed, maxSpeed);
-                    break;
-                case 'streamline':
-                    drawStreamlines(points, scale, colorBySpeed, maxSpeed);
-                    break;
                 case 'particle':
                     drawParticles(points, scale, colorBySpeed, maxSpeed, particleSpeed);
                     break;
@@ -620,118 +612,6 @@
             map.addLayer(vizLayer);
         }
 
-        // 矢羽描画（改善版）
-        function drawBarbs(points, scale, colorBySpeed, maxSpeed) {
-            const group = L.featureGroup();
-
-            for (const p of points) {
-                const u = p.u || 0;
-                const v = p.v || 0;
-                const speed = Math.sqrt(u * u + v * v);
-                const color = colorBySpeed ? speedToColor(speed, maxSpeed) : '#ff6600';
-
-                // ベースの矢印を描画
-                const bearing = Math.atan2(u, v) * 180 / Math.PI;
-                const len = Math.max(0.02, Math.min(0.15, speed * scale * 0.04));
-
-                const rad = bearing * Math.PI / 180;
-                const endLat = p.lat + len * Math.cos(rad);
-                const endLon = p.lon + len * Math.sin(rad) / Math.cos(p.lat * Math.PI / 180);
-
-                const line = L.polyline([[p.lat, p.lon], [endLat, endLon]], {
-                    color: color,
-                    weight: 2,
-                    opacity: 0.8
-                });
-
-                group.addLayer(line);
-
-                // 羽根を描画（速度に応じた本数）
-                const barbCount = Math.floor(speed * scale * 3);
-                for (let i = 0; i < barbCount && i < 5; i++) {
-                    const barbPos = (i + 1) / (barbCount + 1);
-                    const barbLat = p.lat + len * Math.cos(rad) * barbPos;
-                    const barbLon = p.lon + len * Math.sin(rad) * barbPos / Math.cos(p.lat * Math.PI / 180);
-
-                    const barbLen = 0.01;
-                    const barbAngle = rad + Math.PI / 4;
-                    const barbEndLat = barbLat + barbLen * Math.cos(barbAngle);
-                    const barbEndLon = barbLon + barbLen * Math.sin(barbAngle) / Math.cos(barbLat * Math.PI / 180);
-
-                    const barbLine = L.polyline([[barbLat, barbLon], [barbEndLat, barbEndLon]], {
-                        color: color,
-                        weight: 1.5,
-                        opacity: 0.7
-                    });
-
-                    group.addLayer(barbLine);
-                }
-            }
-
-            vizLayer = group;
-            map.addLayer(vizLayer);
-        }
-
-        // 流線描画（カスタムCanvasLayer）
-        function drawStreamlines(points, scale, colorBySpeed, maxSpeed) {
-            const StreamlineLayer = L.CanvasLayer ? L.CanvasLayer : L.Layer.extend({
-                onAdd: function(map) {
-                    if (!this._canvas) {
-                        this._canvas = document.createElement('canvas');
-                        this._canvas.style.position = 'absolute';
-                        this._canvas.style.top = '0';
-                        this._canvas.style.left = '0';
-                        this._canvas.style.pointerEvents = 'none';
-                        map._panes.overlayPane.appendChild(this._canvas);
-                    }
-                    this._map = map;
-                    this._resizeCanvas();
-                    this._draw();
-                    map.on('move zoom', this._draw, this);
-                },
-                onRemove: function(map) {
-                    if (this._canvas) this._canvas.remove();
-                    map.off('move zoom', this._draw, this);
-                },
-                _resizeCanvas: function() {
-                    const size = this._map.getSize();
-                    this._canvas.width = size.x;
-                    this._canvas.height = size.y;
-                },
-                _draw: function() {
-                    const ctx = this._canvas.getContext('2d');
-                    ctx.clearRect(0, 0, this._canvas.width, this._canvas.height);
-
-                    const gridSize = 30;
-                    for (let x = 0; x < this._canvas.width; x += gridSize) {
-                        for (let y = 0; y < this._canvas.height; y += gridSize) {
-                            const latLng = this._map.containerPointToLatLng(L.point(x, y));
-                            const uv = sampleUV(latLng.lat, latLng.lng, points);
-                            const speed = Math.sqrt(uv.u * uv.u + uv.v * uv.v);
-
-                            if (speed < 0.01) continue;
-
-                            const color = colorBySpeed ? speedToColor(speed, maxSpeed) : '#00cc88';
-                            const bearing = Math.atan2(uv.u, uv.v) * 180 / Math.PI;
-                            const len = 20;
-
-                            ctx.strokeStyle = color;
-                            ctx.lineWidth = 1.5;
-                            ctx.globalAlpha = 0.7;
-                            ctx.beginPath();
-                            ctx.moveTo(x, y);
-                            const rad = bearing * Math.PI / 180;
-                            ctx.lineTo(x + len * Math.sin(rad), y + len * Math.cos(rad));
-                            ctx.stroke();
-                        }
-                    }
-                    ctx.globalAlpha = 1.0;
-                }
-            });
-
-            vizLayer = new StreamlineLayer();
-            map.addLayer(vizLayer);
-        }
 
         // 粒子追跡描画（軌跡版）
         function drawParticles(points, scale, colorBySpeed, maxSpeed, particleSpeed) {
