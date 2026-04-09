@@ -269,69 +269,6 @@
         let timelineTimer = null;
         const LAT_MIN = 41.0;
 
-        // Leaflet-Velocity 用データフォーマッター
-        function convertToVelocityFormat(entry) {
-            // ポイントデータをグリッド形式に変換
-            // Leaflet-Velocity は {header: {...}, data: [...]} 形式を要求
-
-            // 最小・最大座標を計算
-            let minLat = Infinity, maxLat = -Infinity;
-            let minLon = Infinity, maxLon = -Infinity;
-
-            for (const p of entry.data) {
-                minLat = Math.min(minLat, p.lat);
-                maxLat = Math.max(maxLat, p.lat);
-                minLon = Math.min(minLon, p.lon);
-                maxLon = Math.max(maxLon, p.lon);
-            }
-
-            // グリッド化（大まかな格子を作成）
-            const latStep = 0.5;
-            const lonStep = 0.5;
-            const gridData = [];
-
-            for (let lat = minLat; lat <= maxLat; lat += latStep) {
-                for (let lon = minLon; lon <= maxLon; lon += lonStep) {
-                    // 最も近い4つのポイントから補間
-                    let closestPoints = [];
-                    for (const p of entry.data) {
-                        const dist = Math.pow(lat - p.lat, 2) + Math.pow(lon - p.lon, 2);
-                        closestPoints.push({ ...p, dist });
-                    }
-                    closestPoints.sort((a, b) => a.dist - b.dist);
-                    closestPoints = closestPoints.slice(0, 4);
-
-                    // 逆距離加重補間
-                    let u = 0, v = 0, wSum = 0;
-                    for (const p of closestPoints) {
-                        const w = 1 / (p.dist + 0.0001);
-                        u += p.u * w;
-                        v += p.v * w;
-                        wSum += w;
-                    }
-                    u /= wSum;
-                    v /= wSum;
-
-                    gridData.push([lat, lon, u, v]);
-                }
-            }
-
-            return {
-                header: {
-                    parameterNumber: 2,
-                    parameterUnit: 'm/s',
-                    lo1: minLon,
-                    la1: maxLat,
-                    lo2: maxLon,
-                    la2: minLat,
-                    dx: lonStep,
-                    dy: latStep,
-                    nx: Math.floor((maxLon - minLon) / lonStep) + 1,
-                    ny: Math.floor((maxLat - minLat) / latStep) + 1
-                },
-                data: gridData
-            };
-        }
 
         // 初期化
         function initMap() {
@@ -410,8 +347,8 @@
         }
 
         function updateTimelineLabel() {
-            if (!allData || !allData.entries[currentEntryIdx]) return;
-            const time = allData.entries[currentEntryIdx].time;
+            if (!allData || !allData[currentEntryIdx]) return;
+            const time = allData[currentEntryIdx].header.refTime;
             el('timelineLabel').textContent = time.substring(0, 16).replace('T', ' ');
         }
 
@@ -423,7 +360,7 @@
             } else {
                 timelineTimer = setInterval(() => {
                     let idx = parseInt(el('timeline-slider').value);
-                    idx = (idx + 1) % allData.entries.length;
+                    idx = (idx + 1) % allData.length;
                     el('timeline-slider').value = idx;
                     setTimelineIndex();
                 }, 800);
@@ -433,7 +370,7 @@
 
         // 表示更新
         function updateDisplay() {
-            if (!allData || !allData.entries[currentEntryIdx]) {
+            if (!allData || !allData[currentEntryIdx]) {
                 setStatus('データが読み込まれていません');
                 return;
             }
@@ -448,8 +385,9 @@
                 vizLayer = null;
             }
 
-            const entry = allData.entries[currentEntryIdx];
-            const points = filterByLatitude(entry.data);
+            const entry = allData[currentEntryIdx];
+            const points = entry.data.map(p => ({ lat: p[0], lon: p[1], u: p[2], v: p[3] }));
+            const filteredPoints = filterByLatitude(points);
 
             const arrowThickness = parseFloat(el('arrowThicknessSlider').value);
             const scale = parseFloat(el('scaleSlider').value);
@@ -460,7 +398,7 @@
             // モードに応じて描画
             switch (vizMode) {
                 case 'arrow':
-                    drawArrows(points, scale, colorBySpeed, maxSpeed, arrowThickness);
+                    drawArrows(filteredPoints, scale, colorBySpeed, maxSpeed, arrowThickness);
                     break;
                 case 'particle':
                     drawParticles(points, scale, colorBySpeed, maxSpeed, particleSpeed);
@@ -470,7 +408,7 @@
             el('arrowThicknessValue').textContent = arrowThickness.toFixed(1);
             el('scaleValue').textContent = scale.toFixed(1) + '×';
             el('particleSpeedValue').textContent = particleSpeed.toFixed(1) + '×';
-            setStatus(`✓ ${points.length} 本の矢印を描画（モード: ${vizMode}）`);
+            setStatus(`✓ ${filteredPoints.length} 本の矢印を描画（モード: ${vizMode}）`);
         }
 
         // フィルタリング（北緯41°以上）
@@ -548,18 +486,18 @@
 
         // 粒子追跡描画（Leaflet-Velocity）
         function drawParticles(points, scale, colorBySpeed, maxSpeed, particleSpeed) {
-            if (!allData || !allData.entries[currentEntryIdx]) return;
+            if (!allData || allData.length === 0) return;
 
-            const entry = allData.entries[currentEntryIdx];
-            const velocityData = convertToVelocityFormat(entry);
+            const velocityData = allData[currentEntryIdx];
 
             // Leaflet-Velocity レイヤーを作成
             const velocityLayer = L.velocityLayer({
                 displayValues: true,
                 displayOptions: {
-                    velocityType: 'Current',
+                    velocityType: 'Ocean Current',
                     position: 'bottom right',
-                    emptyString: 'No data'
+                    emptyString: 'No data',
+                    speedUnit: 'm/s'
                 },
                 data: velocityData.data,
                 maxVelocity: maxSpeed,
@@ -575,7 +513,8 @@
                 particleMultiplier: particleSpeed * 2000,
                 paths: 12,
                 width: 1.5 * (scale / 1.0),
-                padding: 40
+                padding: 40,
+                velocityScale: scale
             });
 
             vizLayer = velocityLayer;
@@ -617,19 +556,19 @@
                 .then(r => r.json())
                 .then(data => {
                     allData = data;
-                    if (!allData.entries || allData.entries.length === 0) {
-                        throw new Error('entries が見つかりません');
+                    if (!Array.isArray(allData) || allData.length === 0) {
+                        throw new Error('grib2json データが見つかりません');
                     }
 
                     const slider = el('timeline-slider');
-                    slider.max = allData.entries.length - 1;
+                    slider.max = allData.length - 1;
                     slider.value = 0;
 
                     currentEntryIdx = 0;
                     updateTimelineLabel();
                     updateDisplay();
 
-                    setStatus(`✓ 海流データを読み込みました (${allData.entries.length} 時刻)`);
+                    setStatus(`✓ 海流データを読み込みました (${allData.length} 時刻)`);
                 })
                 .catch(err => {
                     setStatus(`ファイル読み込みエラー: ${err.message}。手動で選択してください。`);

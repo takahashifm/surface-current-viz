@@ -25,10 +25,10 @@ STEP = 2  # グリッド間隔（2ポイントおき、約1km）
 
 def parse_grib2_file(filepath):
     """
-    GRIB2 ファイルを解析して u/v データを抽出
+    GRIB2 ファイルを解析して grib2json フォーマットで出力
 
     Returns:
-        { "time": "...", "data": [ { "lat": ..., "lon": ..., "u": ..., "v": ... } ] }
+        grib2json 形式のデータ
     """
     print(f"📖 解析中: {os.path.basename(filepath)}")
 
@@ -47,12 +47,16 @@ def parse_grib2_file(filepath):
         u_vals = msg_u.values
         v_vals = msg_v.values
 
-        # データポイントに変換
-        entries = []
+        # グリッド情報を取得
+        nlat, nlon = lats.shape
+        lat_min, lat_max = float(np.nanmin(lats)), float(np.nanmax(lats))
+        lon_min, lon_max = float(np.nanmin(lons)), float(np.nanmax(lons))
 
-        # グリッドを疎にサンプリング
-        for i in range(0, lats.shape[0], STEP):
-            for j in range(0, lats.shape[1], STEP):
+        # グリッドデータを構築（Leaflet-Velocity 互換）
+        grid_data = []
+
+        for i in range(0, nlat, STEP):
+            for j in range(0, nlon, STEP):
                 lat = float(lats[i, j])
                 lon = float(lons[i, j])
 
@@ -71,19 +75,29 @@ def parse_grib2_file(filepath):
                 if np.isnan(u) or np.isnan(v):
                     continue
 
-                entries.append({
-                    "lat": lat,
-                    "lon": lon,
-                    "u": u,
-                    "v": v
-                })
+                grid_data.append([lat, lon, u, v])
 
         grbs.close()
 
-        print(f"  ✓ {len(entries)} ポイント抽出")
+        print(f"  ✓ {len(grid_data)} ポイント抽出")
+
+        # grib2json フォーマットで返す
         return {
-            "time": ref_time.isoformat(),
-            "data": entries
+            "header": {
+                "parameterNumber": 2,
+                "parameterNumberName": "u-component of ocean current",
+                "parameterUnit": "m/s",
+                "refTime": ref_time.isoformat(),
+                "nlon": nlon // STEP,
+                "nlat": nlat // STEP,
+                "la1": float(np.nanmax(lats)),
+                "la2": float(np.nanmin(lats)),
+                "lo1": float(np.nanmin(lons)),
+                "lo2": float(np.nanmax(lons)),
+                "dx": 0.02,  # 約2km
+                "dy": 0.02
+            },
+            "data": grid_data
         }
 
     except Exception as e:
@@ -93,9 +107,9 @@ def parse_grib2_file(filepath):
         return None
 
 def process_all_grib2():
-    """複数の GRIB2 ファイルをパースして JSON に統合"""
+    """複数の GRIB2 ファイルをパースして grib2json 形式で統合"""
     print("=" * 60)
-    print("GRIB2 Parser v2 (複数ファイル統合)")
+    print("GRIB2 Parser v2 (grib2json 形式出力)")
     print("=" * 60)
 
     grib2_files = sorted(glob.glob(os.path.join(DATA_DIR, "*.bin")))
@@ -113,20 +127,14 @@ def process_all_grib2():
         if result and result['data']:
             all_entries.append(result)
 
-    # 統合 JSON ファイルに保存
+    # grib2json リスト形式で保存
     output_filename = "ocean_current_data.json"
     output_path = os.path.join(PROCESSED_DIR, output_filename)
 
-    output_data = {
-        "entries": all_entries,
-        "count": len(all_entries),
-        "generated": datetime.now().isoformat()
-    }
-
     with open(output_path, 'w', encoding='utf-8') as f:
-        json.dump(output_data, f, ensure_ascii=False, indent=2)
+        json.dump(all_entries, f, ensure_ascii=False, indent=2)
 
-    print(f"\n💾 統合 JSON 保存: {output_filename}")
+    print(f"\n💾 grib2json 形式で保存: {output_filename}")
     print(f"  時刻エントリ数: {len(all_entries)}")
 
     total_points = sum(len(entry['data']) for entry in all_entries)
