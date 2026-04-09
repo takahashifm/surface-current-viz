@@ -209,9 +209,30 @@
                         速度で色分け
                     </label>
                 </div>
-                <div class="control-group">
-                    <label>最大速度 (m/s): <span class="slider-value" id="maxSpeedValue">1.0</span></label>
-                    <input type="range" id="maxSpeedSlider" min="0.5" max="5" step="0.5" value="1" oninput="updateDisplay()">
+
+                <!-- カラーバー（凡例） -->
+                <h2>速度凡例</h2>
+                <div style="font-size: 11px; line-height: 1.8;">
+                    <div style="display: flex; align-items: center; margin-bottom: 4px;">
+                        <div style="width: 20px; height: 12px; background: #0088ff; margin-right: 6px;"></div>
+                        <span>0.0-0.125 m/s</span>
+                    </div>
+                    <div style="display: flex; align-items: center; margin-bottom: 4px;">
+                        <div style="width: 20px; height: 12px; background: #00ffff; margin-right: 6px;"></div>
+                        <span>0.125-0.25 m/s</span>
+                    </div>
+                    <div style="display: flex; align-items: center; margin-bottom: 4px;">
+                        <div style="width: 20px; height: 12px; background: #00ff00; margin-right: 6px;"></div>
+                        <span>0.25-0.375 m/s</span>
+                    </div>
+                    <div style="display: flex; align-items: center; margin-bottom: 4px;">
+                        <div style="width: 20px; height: 12px; background: #ffff00; margin-right: 6px;"></div>
+                        <span>0.375-0.45 m/s</span>
+                    </div>
+                    <div style="display: flex; align-items: center;">
+                        <div style="width: 20px; height: 12px; background: #ff0000; margin-right: 6px;"></div>
+                        <span>0.45+ m/s</span>
+                    </div>
                 </div>
 
                 <!-- ステータス -->
@@ -515,7 +536,7 @@
             const scale = parseFloat(el('scaleSlider').value);
             const particleSpeed = parseFloat(el('particleSpeedSlider').value);
             const colorBySpeed = el('colorBySpeed').checked;
-            const maxSpeed = parseFloat(el('maxSpeedSlider').value);
+            const maxSpeed = 0.5;  // 固定値（m/s）
 
             // モードに応じて描画
             switch (vizMode) {
@@ -530,7 +551,6 @@
             el('arrowThicknessValue').textContent = arrowThickness.toFixed(1);
             el('scaleValue').textContent = scale.toFixed(1) + '×';
             el('particleSpeedValue').textContent = particleSpeed.toFixed(1) + '×';
-            el('maxSpeedValue').textContent = maxSpeed.toFixed(1);
             setStatus(`✓ ${points.length} 本の矢印を描画（モード: ${vizMode}）`);
         }
 
