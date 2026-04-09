@@ -452,9 +452,9 @@
             event.target.classList.add('active');
 
             // 粒子アニメーターの停止
-            if (particleAnimator) {
-                particleAnimator.stop();
-                particleAnimator = null;
+            if (particleTracer) {
+                particleTracer.stop();
+                particleTracer = null;
             }
 
             updateDisplay();
@@ -505,9 +505,9 @@
                 }
                 vizLayer = null;
             }
-            if (particleAnimator) {
-                particleAnimator.stop();
-                particleAnimator = null;
+            if (particleTracer) {
+                particleTracer.stop();
+                particleTracer = null;
             }
 
             const entry = allData.entries[currentEntryIdx];
