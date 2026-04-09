@@ -192,8 +192,8 @@
                 <!-- 表示設定 -->
                 <h2>表示設定</h2>
                 <div class="control-group">
-                    <label>矢印間隔 <span class="slider-value" id="densityValue">5</span></label>
-                    <input type="range" id="densitySlider" min="2" max="20" value="5" oninput="updateDisplay()">
+                    <label>矢印太さ <span class="slider-value" id="arrowThicknessValue">2</span>px</label>
+                    <input type="range" id="arrowThicknessSlider" min="1" max="5" step="0.5" value="2" oninput="updateDisplay()">
                 </div>
                 <div class="control-group">
                     <label>矢印スケール <span class="slider-value" id="scaleValue">1.0×</span></label>
@@ -511,33 +511,27 @@
             const entry = allData.entries[currentEntryIdx];
             const points = filterByLatitude(entry.data);
 
-            const density = parseInt(el('densitySlider').value);
+            const arrowThickness = parseFloat(el('arrowThicknessSlider').value);
             const scale = parseFloat(el('scaleSlider').value);
             const particleSpeed = parseFloat(el('particleSpeedSlider').value);
             const colorBySpeed = el('colorBySpeed').checked;
             const maxSpeed = parseFloat(el('maxSpeedSlider').value);
 
-            // 表示密度で間引く
-            const sampledPoints = [];
-            for (let i = 0; i < points.length; i += density) {
-                sampledPoints.push(points[i]);
-            }
-
             // モードに応じて描画
             switch (vizMode) {
                 case 'arrow':
-                    drawArrows(sampledPoints, scale, colorBySpeed, maxSpeed);
+                    drawArrows(points, scale, colorBySpeed, maxSpeed, arrowThickness);
                     break;
                 case 'particle':
                     drawParticles(points, scale, colorBySpeed, maxSpeed, particleSpeed);
                     break;
             }
 
-            el('densityValue').textContent = density;
+            el('arrowThicknessValue').textContent = arrowThickness.toFixed(1);
             el('scaleValue').textContent = scale.toFixed(1) + '×';
             el('particleSpeedValue').textContent = particleSpeed.toFixed(1) + '×';
             el('maxSpeedValue').textContent = maxSpeed.toFixed(1);
-            setStatus(`✓ ${sampledPoints.length} 本の矢印を描画（モード: ${vizMode}）`);
+            setStatus(`✓ ${points.length} 本の矢印を描画（モード: ${vizMode}）`);
         }
 
         // フィルタリング（北緯41°以上）
@@ -558,7 +552,7 @@
         }
 
         // ベクター矢印描画（改善版、矢印ヘッド付き）
-        function drawArrows(points, scale, colorBySpeed, maxSpeed) {
+        function drawArrows(points, scale, colorBySpeed, maxSpeed, arrowThickness) {
             const group = L.featureGroup();
 
             for (const p of points) {
@@ -576,7 +570,7 @@
 
                 const line = L.polyline([[p.lat, p.lon], [endLat, endLon]], {
                     color: color,
-                    weight: 2,
+                    weight: arrowThickness,
                     opacity: 0.8
                 });
 
@@ -595,12 +589,12 @@
 
                 const arrowLine1 = L.polyline([[endLat, endLon], [head1Lat, head1Lon]], {
                     color: color,
-                    weight: 2,
+                    weight: arrowThickness,
                     opacity: 0.8
                 });
                 const arrowLine2 = L.polyline([[endLat, endLon], [head2Lat, head2Lon]], {
                     color: color,
-                    weight: 2,
+                    weight: arrowThickness,
                     opacity: 0.8
                 });
 
